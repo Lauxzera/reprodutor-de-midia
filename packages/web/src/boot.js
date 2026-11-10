@@ -7,6 +7,7 @@ const { createS3, regionFromEndpoint } = require('./s3');
 const { createMemoryS3 } = require('./memory-s3');
 const { createWebApi } = require('./web-api');
 const vault = require('./vault');
+const { convertVideo } = require('./convert');
 
 const LS_VAULT = 'rm.vault';
 const LS_SETTINGS = 'rm.settings';
@@ -56,6 +57,10 @@ function makeStorage(settings, creds) {
   return createS3({ endpoint: settings.endpoint, region: settings.region || regionFromEndpoint(settings.endpoint), bucket: settings.bucket, keyId: creds.keyId, appKey: creds.appKey });
 }
 
+// Seletor de arquivos único e permanente (oculto), para a biblioteca.
+const fileInput = el('input', { type: 'file', multiple: true, hidden: true, id: 'rm-file-input', accept: 'image/*,video/*,.mp4,.m4v,.mov,.webm' });
+document.body.append(fileInput);
+
 function start({ storage, settings, saveSettings, logout, getReadKey }) {
   const api = createWebApi({
     storage,
@@ -63,12 +68,13 @@ function start({ storage, settings, saveSettings, logout, getReadKey }) {
     saveSettings,
     logout,
     getReadKey,
+    convertVideo,
     pickFiles: () =>
       new Promise((resolve) => {
-        const input = el('input', { type: 'file', multiple: true, accept: 'image/*,video/*,.mp4,.m4v,.mov,.webm' });
-        input.addEventListener('change', () => resolve([...input.files]));
-        input.addEventListener('cancel', () => resolve([]));
-        input.click();
+        fileInput.value = '';
+        fileInput.onchange = () => resolve([...fileInput.files]);
+        fileInput.oncancel = () => resolve([]);
+        fileInput.click();
       }),
   });
   window.panelApi = api;
@@ -82,6 +88,7 @@ function demo() {
   const settings = { endpoint: 'https://s3.exemplo.backblazeb2.com', region: 'exemplo', bucket: 'demonstracao', privateBucket: true, publicBaseUrl: '' };
   const banner = el('div', { class: 'demo-banner' }, 'Modo demonstração: os dados ficam só na memória desta aba e somem ao fechar.');
   document.body.prepend(banner);
+  window.__rm = { convertVideo }; // usado nos testes automatizados do modo demonstração
   let readKey = { keyId: 'LEITURA-DEMO', appKey: 'demo-demo-demo' };
   start({ storage: createMemoryS3(), settings, saveSettings: async (p, _k, rk) => { Object.assign(settings, p); if (rk) readKey = rk; }, logout: async () => location.reload(), getReadKey: () => readKey });
 }

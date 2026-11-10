@@ -5,5 +5,8 @@
   "description": "Painel de gestão web (hospedado como site estático)",
   "scripts": {
     "build": "node ../../tools/build-web.js"
+  },
+  "dependencies": {
+    "mediabunny": "^1.65.2"
   }
 }

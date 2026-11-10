@@ -44,7 +44,7 @@ const extOf = (name) => {
  * @param {Function} [o.logout]
  * @param {Function} [o.pickFiles] () => Promise<File[]>   (seletor de arquivos do navegador)
  */
-function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getReadKey = () => null }) {
+function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getReadKey = () => null, convertVideo = null }) {
   const viewSettings = () => {
     const rk = getReadKey();
     return { type: 'b2', ...settings, hasKeys: true, hasReadKey: Boolean(rk), readKeyId: rk ? rk.keyId : '', baseUrl: baseUrlFor(settings) };
@@ -87,10 +87,11 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getR
     } catch {
       /* sem a medição, segue sem a trava de cota */
     }
-    for (const file of files) {
+    for (const original of files) {
       n++;
-      const name = file.name;
-      const ext = extOf(name);
+      let file = original;
+      let name = file.name;
+      let ext = extOf(name);
       const type = mediaTypeFromExt(ext);
       const tag = `(${n}/${files.length}) ${name}`;
       if (!type) {
@@ -99,12 +100,23 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getR
       }
       try {
         say(`${tag}: calculando assinatura…`);
-        const probe = await hashAndProbe(file, (f) => say(`${tag}: lendo ${Math.round(f * 100)}%`));
-        const sha256 = probe.sha256;
+        let probe = await hashAndProbe(file, (f) => say(`${tag}: lendo ${Math.round(f * 100)}%`));
+
+        // HEVC (H.265, padrão do iPhone) não toca no Player: converte para H.264 em MP4 aqui mesmo, no navegador.
         if (type === 'video' && probe.hevc && !probe.h264) {
-          skipped.push({ name, reason: 'vídeo em HEVC (H.265, comum em iPhone): o player não consegue exibir a imagem. Converta para H.264 em MP4 (HandBrake ou ffmpeg) e envie de novo' });
-          continue;
+          if (!convertVideo) {
+            skipped.push({ name, reason: 'vídeo em HEVC (H.265, comum em iPhone): o player não consegue exibir a imagem. Converta para H.264 em MP4 (HandBrake ou ffmpeg) e envie de novo' });
+            continue;
+          }
+          say(`${tag}: convertendo de HEVC para H.264…`);
+          const converted = await convertVideo(file, { onProgress: (f) => say(`${tag}: convertendo ${Math.round(f * 100)}%`) });
+          file = converted;
+          name = converted.name;
+          ext = extOf(name);
+          say(`${tag}: conferindo o arquivo convertido…`);
+          probe = await hashAndProbe(file, (f) => say(`${tag}: lendo ${Math.round(f * 100)}%`));
         }
+        const sha256 = probe.sha256;
         if (entries.some((e) => e.sha256 === sha256)) {
           skipped.push({ name, reason: 'já está na biblioteca' });
           continue;
