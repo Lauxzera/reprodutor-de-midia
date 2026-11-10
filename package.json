@@ -1,0 +1,27 @@
+{
+  "name": "reprodutor-de-midia",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sinalização digital com cache offline (player + painel) sobre Backblaze B2",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "node --test \"packages/*/test/*.test.js\"",
+    "player": "npm run start -w @reprodutor/player",
+    "panel": "npm run start -w @reprodutor/panel",
+    "dev-server": "node tools/dev-server.js",
+    "icons": "node tools/make-icons.js",
+    "b2-check": "node tools/b2-check.js",
+    "dist:player": "npm run dist -w @reprodutor/player",
+    "dist:panel": "npm run dist -w @reprodutor/panel",
+    "dist": "npm run dist:player && npm run dist:panel",
+    "pack:player": "npm run pack -w @reprodutor/player",
+    "pack:panel": "npm run pack -w @reprodutor/panel"
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2"
+  }
+}

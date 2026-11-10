@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.dev/
+release/
+
+# credenciais locais
+config-player-loja.json
+*.local.json
+security.json

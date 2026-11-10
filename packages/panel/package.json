@@ -1,0 +1,37 @@
+{
+  "name": "@reprodutor/panel",
+  "productName": "Reprodutor Painel",
+  "version": "0.1.0",
+  "description": "Painel de gerenciamento do Reprodutor de Mídia",
+  "author": "Reprodutor de Mídia",
+  "private": true,
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "node ../../tools/build-app.js",
+    "pack": "node ../../tools/build-app.js && electron-builder --win --x64 --dir",
+    "dist": "node ../../tools/build-app.js && electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1165.0",
+    "@aws-sdk/lib-storage": "^3.1165.0",
+    "@reprodutor/shared": "*"
+  },
+  "build": {
+    "appId": "br.reprodutor.painel",
+    "productName": "Reprodutor Painel",
+    "electronVersion": "45.2.3",
+    "directories": { "output": "../../release/painel", "buildResources": "build" },
+    "files": ["dist/**/*", "package.json"],
+    "extraMetadata": { "main": "dist/main/index.js", "name": "reprodutor-painel" },
+    "artifactName": "ReprodutorPainel-Setup-${version}.${ext}",
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "Reprodutor Painel"
+    }
+  }
+}

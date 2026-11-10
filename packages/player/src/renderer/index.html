@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; img-src file:; media-src file:; style-src 'self'; script-src 'self'">
+  <title>Player</title>
+  <link rel="stylesheet" href="player.css">
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="idle" class="hidden">
+    <div id="idle-title">Sem conteúdo para exibir</div>
+    <div id="idle-detail"></div>
+  </div>
+  <pre id="debug" class="hidden"></pre>
+  <div id="maint" class="hidden"></div>
+  <script src="player.js"></script>
+  <script src="maintenance.js"></script>
+</body>
+</html>

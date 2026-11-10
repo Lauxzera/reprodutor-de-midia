@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; img-src file: data:; media-src file:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Painel — Reprodutor de Mídia</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header>
+    <div class="brand">Reprodutor de Mídia</div>
+    <label class="screen-pick">Tela
+      <select id="screen-select"></select>
+    </label>
+    <nav id="tabs"></nav>
+  </header>
+  <main id="view"></main>
+  <div id="toast" class="toast hidden"></div>
+  <script src="panel.js"></script>
+</body>
+</html>
