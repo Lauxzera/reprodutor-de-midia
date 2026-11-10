@@ -1,7 +1,7 @@
 {
   "name": "@reprodutor/panel",
   "productName": "Reprodutor Painel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Painel de gerenciamento do Reprodutor de Mídia",
   "author": "Reprodutor de Mídia",
   "private": true,
@@ -21,11 +21,29 @@
     "appId": "br.reprodutor.painel",
     "productName": "Reprodutor Painel",
     "electronVersion": "45.2.3",
-    "directories": { "output": "../../release/painel", "buildResources": "build" },
-    "files": ["dist/**/*", "package.json"],
-    "extraMetadata": { "main": "dist/main/index.js", "name": "reprodutor-painel" },
+    "directories": {
+      "output": "../../release/painel",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "dist/main/index.js",
+      "name": "reprodutor-painel"
+    },
     "artifactName": "ReprodutorPainel-Setup-${version}.${ext}",
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,

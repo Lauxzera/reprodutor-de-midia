@@ -118,3 +118,24 @@ test('API web: adicionar mídia, montar playlist, publicar e limpar órfãs', as
   assert.equal((await api2.library.list()).length, 2);
   assert.equal((await api2.project.get()).screens[0].revision, 1);
 });
+
+test('API web: mede o uso do bucket e recusa envio que estouraria os 10 GB gratuitos', async () => {
+  const storage = createMemoryS3();
+  const settings = { endpoint: 'https://s3.us-east-005.backblazeb2.com', region: '', bucket: 'b', privateBucket: true, publicBaseUrl: '' };
+  const api = createWebApi({ storage, settings, saveSettings: async () => {} });
+
+  await api.library.addPaths([new File([crypto.randomBytes(1000)], 'a.png')]);
+  const q = await api.quota.get();
+  assert.ok(q.used >= 1000);
+  assert.equal(q.level, 'ok');
+  assert.equal(q.limit, 10 * 1024 ** 3);
+
+  // simula um bucket quase cheio: um objeto de "9,99 GB" na lista e um arquivo novo que não cabe
+  const realList = storage.list.bind(storage);
+  storage.list = async (p) => [...(await realList(p)), { key: 'media/enorme.bin', size: 10 * 1024 ** 3 - 500 }];
+  const full = createWebApi({ storage, settings, saveSettings: async () => {} });
+  const r = await full.library.addPaths([new File([crypto.randomBytes(2000)], 'b.png')]);
+  assert.equal(r.added.length, 0);
+  assert.match(r.skipped[0].reason, /não cabe/);
+  assert.equal((await full.quota.get()).level, 'over'); // 10 GB - 500 B + os 1000 B já enviados
+});

@@ -6,7 +6,10 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
-const { validateManifest, sha256File, signedFetch } =require('@reprodutor/shared');
+const { validateManifest, sha256File, signedFetch, assessRequests, isCapError } = require('@reprodutor/shared');
+
+const CAP_WAIT_MS = 30 * 60 * 1000; // cota do B2 esgotada: só tenta de novo daqui a 30 min
+const today = () => new Date().toISOString().slice(0, 10); // o dia do B2 vira à meia-noite UTC
 
 const MANIFEST_TIMEOUT_MS = 15000;
 const IDLE_TIMEOUT_MS = 30000;
@@ -39,8 +42,17 @@ class SyncEngine extends EventEmitter {
     this.backupManifestPath = path.join(this.dataDir, 'manifest.bak.json');
     this.statePath = path.join(this.dataDir, 'state.json');
 
+    // Conta cada requisição ao bucket (uma consulta de manifesto ou um download = 1 transação).
+    const inner = this.fetch;
+    this.fetch = (...args) => {
+      this._countRequest();
+      return inner(...args);
+    };
+    this._capHit = false;
+    this._warnedDay = null;
+
     this.manifest = null;
-    this.state = { etag: null, lastSyncAt: null };
+    this.state = { etag: null, lastSyncAt: null, requestDay: today(), requestsToday: 0 };
     this.status = { state: 'idle', message: '', lastCheckAt: null, lastSyncAt: null };
 
     this._timer = null;
@@ -48,6 +60,27 @@ class SyncEngine extends EventEmitter {
     this._inflight = null;
     this._failures = 0;
     this._lastProgressEmit = 0;
+  }
+
+  _countRequest() {
+    const d = today();
+    if (this.state.requestDay !== d) {
+      this.state.requestDay = d;
+      this.state.requestsToday = 0;
+    }
+    this.state.requestsToday++;
+    const q = assessRequests(this.state.requestsToday);
+    if (q.level !== 'ok' && this._warnedDay !== d) {
+      this._warnedDay = d;
+      this.log(`Aviso de cota: ${q.used} leituras hoje (limite gratuito do B2 ~${q.limit}/dia, somando todos os players e o painel). Aumente "Consultar a cada".`);
+    }
+  }
+
+  /** Uso diário de leituras deste player (para o painel de status). */
+  quota() {
+    const d = today();
+    const used = this.state.requestDay === d ? this.state.requestsToday : 0;
+    return assessRequests(used);
   }
 
   get manifestUrl() {
@@ -119,7 +152,7 @@ class SyncEngine extends EventEmitter {
       }
       if (this._stopped) return;
       const wait = Math.min(this.pollMs * 2 ** Math.min(this._failures, 6), Math.max(this.pollMs, MAX_BACKOFF_MS));
-      this._timer = setTimeout(tick, this._failures ? wait : this.pollMs);
+      this._timer = setTimeout(tick, this._capHit ? CAP_WAIT_MS : this._failures ? wait : this.pollMs);
     };
     tick();
   }
@@ -139,7 +172,7 @@ class SyncEngine extends EventEmitter {
   }
 
   _setStatus(state, message = '') {
-    this.status = { ...this.status, state, message };
+    this.status = { ...this.status, state, message, quota: this.quota(), quotaExceeded: this._capHit };
     this.emit('status', this.status);
   }
 
@@ -170,6 +203,13 @@ class SyncEngine extends EventEmitter {
       } else if (res.status === 404) {
         return this._finish('error', `Manifesto não encontrado: ${this.manifestUrl}`);
       } else if (!res.ok) {
+        const body = res.status === 403 || res.status === 429 || res.status === 503 ? await res.text().catch(() => '') : '';
+        this._capHit = false;
+        if (isCapError(res.status, body)) {
+          this._capHit = true;
+          this.log('Cota diária do B2 esgotada (HTTP ' + res.status + '); continua tocando do disco e tenta de novo em 30 min.');
+          return this._finish('error', 'Cota diária do B2 esgotada: segue tocando o que já está no disco; volta a atualizar quando a cota renovar (meia-noite UTC)');
+        }
         return this._finish('error', `HTTP ${res.status} ao consultar o manifesto`);
       } else {
         const text = await res.text();
@@ -193,6 +233,7 @@ class SyncEngine extends EventEmitter {
       return this._finish('offline', e.cause?.code || e.name || e.message);
     }
 
+    this._capHit = false; // o B2 respondeu normalmente
     if (!target) return this._finish('idle', 'Sem manifesto ainda');
 
     // 2) Baixa o que falta (arquivos novos ou apagados do disco).

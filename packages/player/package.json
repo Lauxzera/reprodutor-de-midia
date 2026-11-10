@@ -1,7 +1,7 @@
 {
   "name": "@reprodutor/player",
   "productName": "Reprodutor Player",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Player de sinalização digital com cache offline",
   "author": "Reprodutor de Mídia",
   "private": true,
@@ -19,11 +19,29 @@
     "appId": "br.reprodutor.player",
     "productName": "Reprodutor Player",
     "electronVersion": "45.2.3",
-    "directories": { "output": "../../release/player", "buildResources": "build" },
-    "files": ["dist/**/*", "package.json"],
-    "extraMetadata": { "main": "dist/main/index.js", "name": "reprodutor-player" },
+    "directories": {
+      "output": "../../release/player",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "dist/main/index.js",
+      "name": "reprodutor-player"
+    },
     "artifactName": "ReprodutorPlayer-Setup-${version}.${ext}",
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,

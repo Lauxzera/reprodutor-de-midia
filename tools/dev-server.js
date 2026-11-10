@@ -36,7 +36,8 @@ function createServer(root, opts = {}) {
     if (opts.onRequest) opts.onRequest(req);
     const forced = opts.forceStatus && opts.forceStatus(req);
     if (forced) {
-      res.writeHead(forced).end();
+      const f = typeof forced === 'object' ? forced : { status: forced };
+      res.writeHead(f.status).end(f.body || '');
       return;
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') {

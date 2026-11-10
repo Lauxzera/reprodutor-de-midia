@@ -7,6 +7,7 @@
 const { mediaTypeFromExt, screenKey, mediaKey } = require('@reprodutor/shared');
 const { publishScreen } = require('../../panel/src/main/publish');
 const { sha256Blob } = require('./sha256');
+const { assessStorage, fmtBytes } = require('../../shared/src/quota');
 
 const LIBRARY_KEY = 'admin/library.json';
 const PROJECT_KEY = 'admin/project.json';
@@ -63,11 +64,24 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles }) {
     return fresh;
   }
 
+  // Uso do armazenamento do bucket (soma de tudo o que existe nele), para avisar antes de estourar os 10 GB gratuitos.
+  let usage = null;
+  async function refreshUsage() {
+    const objects = await storage.list('');
+    usage = { ...assessStorage(objects.reduce((n, o) => n + o.size, 0)), objects: objects.length };
+    return usage;
+  }
+
   async function addFiles(files) {
     const entries = await loadLibrary();
     const added = [];
     const skipped = [];
     let n = 0;
+    try {
+      if (!usage) await refreshUsage();
+    } catch {
+      /* sem a medição, segue sem a trava de cota */
+    }
     for (const file of files) {
       n++;
       const name = file.name;
@@ -88,6 +102,10 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles }) {
         const key = mediaKey(sha256, ext);
         const existing = await storage.exists(key);
         if (existing !== file.size) {
+          if (usage && usage.used + file.size > usage.limit) {
+            skipped.push({ name, reason: `não cabe nos ${fmtBytes(usage.limit)} gratuitos do B2 (já usados: ${fmtBytes(usage.used)}). Apague mídias órfãs ou arquivos no site do B2` });
+            continue;
+          }
           say(`${tag}: enviando…`);
           await storage.putFile(key, file, {
             contentType: file.type || undefined,
@@ -95,6 +113,7 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles }) {
             onProgress: (f) => say(`${tag}: enviando ${Math.round(f * 100)}%`),
           });
         }
+        if (existing !== file.size && usage) usage = { ...assessStorage(usage.used + file.size, usage.limit), objects: usage.objects + 1 };
         const entry = { sha256, name, ext, type, size: file.size, addedAt: new Date().toISOString() };
         entries.push(entry);
         localFiles.set(sha256, file);
@@ -178,6 +197,10 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles }) {
       onProgress: (cb) => publishListeners.push(cb),
     },
     pathForFile: (file) => file,
+    quota: {
+      get: async () => usage || refreshUsage(),
+      refresh: refreshUsage,
+    },
     logout: logout || (async () => {}),
 
     /** Apaga do bucket as mídias que não estão na biblioteca nem em nenhuma tela publicada. */
@@ -190,6 +213,7 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles }) {
       }
       const orphans = (await storage.list('media/')).filter((o) => !keep.has(o.key));
       for (const o of orphans) await storage.delete(o.key);
+      usage = null; // será medido de novo
       return { removed: orphans.length, bytes: orphans.reduce((n, o) => n + o.size, 0) };
     },
   };

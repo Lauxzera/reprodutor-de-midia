@@ -23,7 +23,33 @@ const state = {
   publishLog: [],
   settingsDraft: null,
   testResult: null,
+  quota: null, // só na versão web: uso do armazenamento do B2
 };
+
+// Barra de uso do armazenamento (versão web). Os limites são os conhecidos do plano gratuito do B2.
+function quotaBar() {
+  if (!api.quota || !state.quota) return null;
+  const q = state.quota;
+  const pct = Math.min(100, Math.round(q.ratio * 100));
+  const msg = q.level === 'over' ? ' — limite gratuito atingido: novos envios serão recusados' : q.level === 'warn' ? ' — perto do limite gratuito; apague o que não usa' : '';
+  return h(
+    'div',
+    { class: `quota ${q.level}` },
+    h('div', { class: 'quota-text' }, `Armazenamento do B2: ${formatSize(q.used)} de ${formatSize(q.limit)} (${pct}%)${msg}`),
+    h('div', { class: 'quota-track' }, h('div', { class: 'quota-fill', style: `width:${pct}%` })),
+    h('button', { class: 'btn small', onclick: () => loadQuota(true) }, 'Atualizar'),
+  );
+}
+
+async function loadQuota(force) {
+  if (!api.quota) return;
+  try {
+    state.quota = force ? await api.quota.refresh() : await api.quota.get();
+    render();
+  } catch (e) {
+    /* sem a medição, a barra simplesmente não aparece */
+  }
+}
 
 // ---------- utilidades ----------
 
@@ -119,6 +145,7 @@ async function addPaths(paths) {
   await reloadLibrary();
   reportAdd(r);
   render();
+  loadQuota(false);
 }
 
 function reportAdd(r) {
@@ -133,6 +160,7 @@ async function pickFiles() {
   await reloadLibrary();
   reportAdd(r);
   render();
+  loadQuota(false);
 }
 
 function viewLibrary() {
@@ -186,6 +214,7 @@ function viewLibrary() {
     {},
     h('h2', {}, 'Biblioteca'),
     h('p', { class: 'sub' }, api.web ? 'Arquivos disponíveis para as playlists. Cada arquivo é enviado ao seu bucket do B2.' : 'Arquivos disponíveis para as playlists. Cada arquivo é copiado para o painel.'),
+    quotaBar(),
     zone,
     state.library.length ? grid : h('p', { class: 'muted' }, 'Nenhuma mídia ainda.'),
   );
@@ -460,6 +489,13 @@ function viewPublish() {
     h('h3', {}, 'Configuração do player'),
     h('p', { class: 'muted', style: 'margin-top:0' }, 'No PC das TVs, no player, pressione Ctrl+Shift+M, escolha "Configurar conexão" e cole este JSON.'),
     h('pre', { class: 'code' }, playerConfigText()),
+    (() => {
+      // Cada consulta do player ao manifesto conta como uma leitura; o limite gratuito diário do B2 é compartilhado por todos os players.
+      const poll = Number((JSON.parse(playerConfigText()).pollSeconds)) || 60;
+      const perDay = Math.ceil(86400 / poll);
+      const over = perDay > 1250;
+      return h('p', { class: over ? 'warn' : 'muted', style: 'margin:8px 0 0;font-size:13px' }, `Cada player consulta a cada ${poll} s: cerca de ${perDay} leituras por dia, de ~2.500 gratuitas por dia no B2 (somando todos os players e o painel).${over ? ' Com 2 ou mais players, aumente o intervalo.' : ''}`);
+    })(),
     h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn small', onclick: () => navigator.clipboard.writeText(playerConfigText()).then(() => toast('Copiado', 'success')) }, 'Copiar')),
     state.settings.baseUrl ? null : h('p', { class: 'warn' }, 'Defina a URL pública do bucket em Configurações.'),
   );
@@ -752,6 +788,7 @@ async function boot() {
   state.screenId = project.screens[0].id;
   if (!storageReady()) state.tab = 'settings';
   render();
+  loadQuota(false);
 }
 
 boot().catch((e) => {

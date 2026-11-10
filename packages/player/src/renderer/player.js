@@ -27,8 +27,11 @@ function renderDebug() {
     `itens: ${state.playableCount}/${state.itemCount} no disco`,
     `sync: ${st.state}${st.message ? ` — ${st.message}` : ''}`,
     `última sync: ${st.lastSyncAt || '—'}`,
+    st.quota ? `leituras do B2 hoje: ${st.quota.used}/${st.quota.limit} (${Math.round(st.quota.ratio * 100)}%)${st.quota.level === 'ok' ? '' : st.quota.level === 'over' ? ' — LIMITE GRATUITO ATINGIDO' : ' — perto do limite gratuito'}` : null,
     `tocando: ${currentId || '—'}`,
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function showIdle(show) {
