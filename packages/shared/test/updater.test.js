@@ -73,7 +73,7 @@ test('downloadUpdate: recusa hash diferente, SHA256SUMS ausente e arquivo não l
 test('launchInstaller com appExe: usa o auxiliar wscript, que roda o instalador e reabre o app', () => {
   let seen;
   let script;
-  launchInstaller('C:\\Users\\D&D\\Temp\\up\\Setup 0.1.3.exe', {
+  launchInstaller('C:\\Users\\Usuario & Teste\\Temp\\up\\Setup 0.1.3.exe', {
     appExe: 'C:\\Apps\\Reprodutor Player.exe',
     writeFile: (p, t) => (script = { p, t }),
     spawnImpl: (cmd, args, opts) => ((seen = { cmd, args, opts }), { unref() {} }),
@@ -81,7 +81,7 @@ test('launchInstaller com appExe: usa o auxiliar wscript, que roda o instalador 
   assert.equal(seen.cmd, 'wscript.exe');
   assert.equal(seen.opts.detached, true);
   assert.deepEqual(seen.args.slice(0, 2), ['//B', '//Nologo']);
-  assert.deepEqual(seen.args.slice(3), ['C:\\Users\\D&D\\Temp\\up\\Setup 0.1.3.exe', 'C:\\Apps\\Reprodutor Player.exe', 'Reprodutor Player.exe']);
+  assert.deepEqual(seen.args.slice(3), ['C:\\Users\\Usuario & Teste\\Temp\\up\\Setup 0.1.3.exe', 'C:\\Apps\\Reprodutor Player.exe', 'Reprodutor Player.exe']);
   assert.equal(seen.args[2], script.p);
   assert.ok(script.t.includes('/S --updated') && script.t.includes('Win32_Process'));
   // no arquivo JScript o moniker fica com as barras dobradas: winmgmts:\\\\.\\root\\cimv2
@@ -90,8 +90,8 @@ test('launchInstaller com appExe: usa o auxiliar wscript, que roda o instalador 
 
 test('launchInstaller: roda o instalador direto com /S, independente do app (sem PowerShell, sem shell)', () => {
   let seen;
-  const child = launchInstaller('C:\Users\D&D\Temp\Setup 0.1.3.exe', { spawnImpl: (cmd, args, opts) => ((seen = { cmd, args, opts }), { unref() { seen.unref = true; } }) });
-  assert.equal(seen.cmd, 'C:\Users\D&D\Temp\Setup 0.1.3.exe');
+  const child = launchInstaller('C:\Users\Usuario & Teste\Temp\Setup 0.1.3.exe', { spawnImpl: (cmd, args, opts) => ((seen = { cmd, args, opts }), { unref() { seen.unref = true; } }) });
+  assert.equal(seen.cmd, 'C:\Users\Usuario & Teste\Temp\Setup 0.1.3.exe');
   assert.deepEqual(seen.args, ['/S']);
   assert.equal(seen.opts.detached, true);
   assert.equal(seen.opts.stdio, 'ignore');
