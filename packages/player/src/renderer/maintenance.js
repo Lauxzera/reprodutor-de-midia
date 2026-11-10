@@ -195,6 +195,21 @@
       msg.textContent = r.ok ? r.message : r.error;
     };
 
+    const up = s.update;
+    const checkUpdates = async () => {
+      msg.textContent = 'Verificando atualizações…';
+      const r = await api.maint.updateCheck(token);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      showMenu(r.ok ? (r.info.newer ? `Nova versão disponível: v${r.info.latest}.` : `Já está na versão mais recente (v${r.info.current}).`) : `Não consegui verificar: ${r.error}`);
+    };
+    const doUpdate = async () => {
+      if (!window.confirm(`Atualizar para a v${up.latest}? O player baixa, fecha, instala e reabre sozinho (cerca de um minuto; a TV fica sem imagem nesse tempo).`)) return;
+      msg.textContent = 'Baixando a atualização…';
+      const r = await api.maint.updateInstall(token);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      msg.textContent = r.ok ? r.message : r.error;
+    };
+
     // Minimizar: fecha o menu (e a sessão) e esconde a janela; o player volta sozinho depois de alguns minutos.
     const minimize = (action) => async () => {
       const r = await api.maint.action(token, action);
@@ -212,10 +227,13 @@
       ),
       el('pre', {}, info.log || '(log vazio)'),
       msg,
+      up && up.newer ? el('p', { class: 'msg' }, `Nova versão disponível: v${up.latest} (instalada: v${up.current}).`) : null,
       el(
         'div',
         { class: 'row' },
-        el('button', { class: 'primary', onclick: run('sync') }, 'Sincronizar agora'),
+        up && up.newer ? el('button', { class: 'primary', onclick: doUpdate }, `Atualizar para v${up.latest}`) : null,
+        el('button', { class: up && up.newer ? '' : 'primary', onclick: run('sync') }, 'Sincronizar agora'),
+        el('button', { onclick: checkUpdates }, 'Verificar atualizações'),
         el('button', { onclick: showConfig }, 'Configurar conexão'),
         el('button', { onclick: minimize('minimize') }, 'Minimizar o player'),
         el('button', { onclick: minimize('windows-settings') }, 'Configurações do Windows'),
@@ -245,6 +263,14 @@
     cursorTimer = setTimeout(() => document.body.classList.remove('show-cursor'), 3000);
   });
   corner.addEventListener('click', () => open());
+
+  // Andamento do download da atualização (aparece na linha de mensagem do menu).
+  if (api.onUpdateProgress) {
+    api.onUpdateProgress((p) => {
+      const m = root.querySelector('.msg');
+      if (m) m.textContent = `Baixando a atualização… ${Math.round(p * 100)}%`;
+    });
+  }
 
   window.__openMaint = open; // usado nos testes automatizados
 })();

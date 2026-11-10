@@ -70,6 +70,8 @@ body.maint-open, body.show-cursor { cursor: default; }
   opacity: 0.1; /* quase invisível sobre o vídeo; sempre clicável */
   transition: opacity 0.2s;
 }
+#corner.has-update { opacity: 0.3; } /* há versão nova: um pouco mais visível, com um ponto laranja */
+#corner.has-update::after { content: ''; position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; border-radius: 50%; background: #f2b84b; }
 #corner:hover, #corner:focus-visible { opacity: 1; background: rgba(76, 141, 255, 0.9); }
 body.maint-open #corner { display: none; }
 

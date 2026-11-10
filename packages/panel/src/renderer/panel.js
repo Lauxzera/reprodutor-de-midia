@@ -24,6 +24,7 @@ const state = {
   settingsDraft: null,
   testResult: null,
   quota: null, // só na versão web: uso do armazenamento do B2
+  update: null, // só no app de mesa: resultado da verificação de versão
   pair: undefined, // código de pareamento do player: undefined = não carregado, null = carregando, {ok, code|error}
 };
 
@@ -39,6 +40,47 @@ function quotaBar() {
     h('div', { class: 'quota-text' }, `Armazenamento do B2: ${formatSize(q.used)} de ${formatSize(q.limit)} (${pct}%)${msg}`),
     h('div', { class: 'quota-track' }, h('div', { class: 'quota-fill', style: `width:${pct}%` })),
     h('button', { class: 'btn small', onclick: () => loadQuota(true) }, 'Atualizar'),
+  );
+}
+
+// Atualizações do app de mesa (o painel web já está sempre atualizado).
+async function checkUpdate(manual) {
+  if (!api.update) return;
+  state.update = await api.update.check();
+  if (state.update.ok && state.update.newer) toast(`Nova versão disponível: v${state.update.latest}. Atualize em Configurações.`, 'info');
+  else if (manual) toast(state.update.ok ? `Já está na versão mais recente (v${state.update.current}).` : `Não consegui verificar: ${state.update.error}`, state.update.ok ? 'success' : 'error');
+  render();
+}
+
+function updateBlock() {
+  if (!api.update) return null;
+  const u = state.update;
+  return h(
+    'div',
+    { class: 'card', style: 'margin-top:22px' },
+    h('h3', {}, 'Atualizações'),
+    h('p', { class: 'muted', style: 'margin-top:0' }, u && u.ok ? (u.newer ? `Nova versão disponível: v${u.latest} (instalada: v${u.current}).` : `Versão instalada: v${u.current} (a mais recente).`) : u ? `Não consegui verificar: ${u.error}` : 'Verificando…'),
+    h(
+      'div',
+      { class: 'row wrap' },
+      u && u.ok && u.newer
+        ? h(
+            'button',
+            {
+              class: 'btn primary',
+              onclick: async (e) => {
+                if (!confirm(`Atualizar para a v${u.latest}? O painel baixa, fecha, instala e reabre sozinho (cerca de um minuto).`)) return;
+                e.target.disabled = true;
+                const r = await api.update.install();
+                toast(r.ok ? r.message : r.error, r.ok ? 'success' : 'error');
+                e.target.disabled = false;
+              },
+            },
+            `Atualizar para v${u.latest}`,
+          )
+        : null,
+      h('button', { class: 'btn', onclick: () => checkUpdate(true) }, 'Verificar atualizações'),
+    ),
   );
 }
 
@@ -732,6 +774,7 @@ function viewSettings() {
       ),
       result,
     ),
+    updateBlock(),
     api.web
       ? h(
           'div',
@@ -811,6 +854,8 @@ api.publish.onProgress((p) => {
   }
 });
 
+if (api.update && api.update.onProgress) api.update.onProgress((p) => toast(`Baixando a atualização… ${Math.round(p * 100)}%`, 'info'));
+
 // Versão web: andamento do cálculo e do envio dos arquivos.
 if (api.library.onProgress) api.library.onProgress((m) => toast(m, 'info'));
 
@@ -841,6 +886,7 @@ async function boot() {
   if (!storageReady()) state.tab = 'settings';
   render();
   loadQuota(false);
+  checkUpdate(false); // avisa se há versão nova (só no app de mesa)
 }
 
 boot().catch((e) => {

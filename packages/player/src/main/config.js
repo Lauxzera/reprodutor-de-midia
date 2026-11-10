@@ -29,6 +29,7 @@ function loadConfig(dataDir) {
     screenId: typeof raw.screenId === 'string' ? raw.screenId.trim() : '',
     pollSeconds: Number.isFinite(raw.pollSeconds) ? raw.pollSeconds : 60,
     autoStart: raw.autoStart !== false,
+    updates: raw.updates !== false, // verificar novas versões no GitHub ("updates": false desliga)
     // Opcional: bucket privado (chave somente de leitura).
     keyId: typeof raw.keyId === 'string' ? raw.keyId.trim() : '',
     secretKey: typeof raw.secretKey === 'string' ? raw.secretKey.trim() : '',

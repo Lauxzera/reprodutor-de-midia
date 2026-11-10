@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('playerApi', {
   next: (lastId) => invoke('player:next', lastId),
   onChanged: (cb) => ipcRenderer.on('player:changed', (_e, state) => cb(state)),
   heartbeat: () => ipcRenderer.send('player:heartbeat'),
+  onUpdateProgress: (cb) => ipcRenderer.on('player:update-progress', (_e, p) => cb(p)),
   log: (message) => ipcRenderer.send('player:log', String(message).slice(0, 300)),
   playing: (info) => ipcRenderer.send('player:playing', info),
   maint: {
@@ -21,5 +22,7 @@ contextBridge.exposeInMainWorld('playerApi', {
     saveConfig: (token, cfg) => invoke('maint:save-config', token, cfg),
     applyPair: (token, code) => invoke('maint:apply-pair', token, code),
     listScreens: (token) => invoke('maint:list-screens', token),
+    updateCheck: (token) => invoke('maint:update-check', token),
+    updateInstall: (token) => invoke('maint:update-install', token),
   },
 });

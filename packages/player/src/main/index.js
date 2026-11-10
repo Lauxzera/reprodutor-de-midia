@@ -4,7 +4,7 @@ const { app, BrowserWindow, ipcMain, powerSaveBlocker, shell } = require('electr
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
-const { nextActiveItem, SLUG_RE, decodePair } = require('@reprodutor/shared');
+const { nextActiveItem, SLUG_RE, decodePair, checkForUpdate, downloadUpdate, launchInstaller } = require('@reprodutor/shared');
 const { listScreens } = require('./screens');
 const { SyncEngine } = require('./sync');
 const { loadConfig } = require('./config');
@@ -41,6 +41,9 @@ function main() {
 
   let win = null;
   let screenChoices = []; // telas publicadas quando há mais de uma e falta escolher
+  let updateInfo = null; // resultado da última verificação de versão
+  let updateError = '';
+  let updating = false;
   let pendingPair = null; // credenciais de um código de pareamento colado e ainda não salvas (nunca vão ao renderer)
   let quitting = false;
   let lastStatusState = null;
@@ -93,6 +96,7 @@ function main() {
     itemCount: engine.manifest ? engine.manifest.items.length : 0,
     playableCount: engine.playableItems().length,
     status: engine.status,
+    update: updateInfo ? { current: updateInfo.current, latest: updateInfo.latest, newer: updateInfo.newer, notes: updateInfo.notes, error: updateError } : updateError ? { error: updateError } : null,
   });
 
   const toPlayable = (item) => ({
@@ -128,6 +132,22 @@ function main() {
       log(`Sincronização: ${s.state}${s.message ? ` — ${s.message}` : ''}`);
     }
   });
+
+  // ---- atualizações (GitHub Releases) ----
+
+  const checkUpdate = async () => {
+    if (config.updates === false) return null;
+    try {
+      const before = updateInfo && updateInfo.latest;
+      updateInfo = await checkForUpdate({ app: 'player', current: process.env.PLAYER_FAKE_VERSION || app.getVersion() }); // PLAYER_FAKE_VERSION: só para testes
+      updateError = '';
+      if (updateInfo.newer && updateInfo.latest !== before) log(`Nova versão disponível: v${updateInfo.latest} (instalada: v${updateInfo.current})`);
+    } catch (e) {
+      updateError = e.message; // sem internet etc.: silencioso, tenta de novo mais tarde
+    }
+    notify();
+    return updateInfo;
+  };
 
   // ---- manutenção (senha) ----
 
@@ -206,6 +226,34 @@ function main() {
       return { ok: true, screens: await listScreens(credsOf(pendingPair || config)) };
     } catch (e) {
       return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('maint:update-check', async (_e, token) => {
+    if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
+    if (config.updates === false) return { ok: false, error: 'Atualizações desligadas no config.json ("updates": false)' };
+    await checkUpdate();
+    return updateInfo ? { ok: true, info: { current: updateInfo.current, latest: updateInfo.latest, newer: updateInfo.newer } } : { ok: false, error: updateError || 'sem resposta' };
+  });
+
+  // Baixa o instalador do Release, confere o SHA-256, fecha o player e deixa o instalador reabri-lo.
+  ipcMain.handle('maint:update-install', async (_e, token) => {
+    if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
+    if (!app.isPackaged) return { ok: false, error: 'A atualização pelo app só funciona no programa instalado' };
+    if (updating) return { ok: false, error: 'Já existe uma atualização em andamento' };
+    if (!updateInfo || !updateInfo.newer) return { ok: false, error: 'Não há versão nova; verifique as atualizações primeiro' };
+    updating = true;
+    try {
+      log(`Atualização: baixando v${updateInfo.latest}`);
+      const file = await downloadUpdate({ info: updateInfo, onProgress: (p) => win && !win.isDestroyed() && win.webContents.send('player:update-progress', p) });
+      log('Atualização: instalador conferido (SHA-256); fechando para instalar');
+      launchInstaller(file, { appExe: process.execPath }); // o auxiliar reabre o player depois de instalar
+      setTimeout(quit, 1000);
+      return { ok: true, message: `Instalando v${updateInfo.latest}… o player fecha e reabre sozinho em cerca de um minuto.` };
+    } catch (e) {
+      updating = false;
+      log(`Atualização falhou: ${e.message}`);
+      return { ok: false, error: `Atualização falhou: ${e.message}` };
     }
   });
 
@@ -420,6 +468,9 @@ function main() {
     if (config.configured) engine.start();
     else if (config.baseUrl && config.keyId && config.secretKey) autoPickScreen();
     else log('Player sem configuração: pressione Ctrl+Shift+M na tela do player para configurar a conexão.');
+    // Verifica novas versões pouco depois de abrir e depois a cada 6 horas.
+    setTimeout(checkUpdate, 15000);
+    setInterval(checkUpdate, 6 * 60 * 60 * 1000);
     log(`Player iniciado (tela "${config.screenId || '—'}", dados em ${dataDir})`);
   });
 

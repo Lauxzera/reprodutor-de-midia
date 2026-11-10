@@ -77,6 +77,8 @@ function setup(apiOverrides = {}) {
       getConfig: async () => ({ ok: true, baseUrl: '', screenId: '', pollSeconds: 60, keyId: '', hasSecret: false }),
       saveConfig: async () => ({ ok: true, message: 'ok' }),
       applyPair: async () => ({ ok: false, error: 'x' }),
+      updateCheck: async () => ({ ok: true, info: { current: '0.1.2', latest: '0.1.3', newer: true } }),
+      updateInstall: async () => ({ ok: true, message: 'Instalando…' }),
       listScreens: async () => ({ ok: true, screens: [] }),
       ...apiOverrides,
     },
@@ -88,6 +90,7 @@ function setup(apiOverrides = {}) {
     body,
   };
   const errors = [];
+  api.onUpdateProgress = () => {};
   const win = { playerApi: api, innerWidth: 1280, addEventListener: (t, fn) => (windowHandlers[t] ||= []).push(fn), confirm: () => true };
   const sandbox = { window: win, document, Node: FakeNode, setTimeout, clearTimeout, console: { warn: () => {}, log: () => {}, error: (e) => errors.push(e) } };
   vm.runInNewContext(fs.readFileSync(process.env.MAINT_JS || path.join(__dirname, '../src/renderer/maintenance.js'), 'utf8'), sandbox);
@@ -151,4 +154,34 @@ test('manutenção: Ctrl+Shift+M abre e Esc fecha', async () => {
   assert.ok(!t.maint.classList.contains('hidden'));
   await t.press('Escape');
   assert.ok(t.maint.classList.contains('hidden'));
+});
+
+test('manutenção: aviso de versão nova, botão Atualizar e Verificar atualizações', async () => {
+  const calls = [];
+  const t = setup({
+    info: async () => ({ ok: true, snapshot: { screenId: 'loja', revision: 1, playableCount: 0, itemCount: 0, status: { state: 'idle' }, update: { current: '0.1.2', latest: '0.1.3', newer: true } }, log: '' }),
+    updateInstall: async () => (calls.push('install'), { ok: true, message: 'Instalando v0.1.3…' }),
+  });
+  for (const fn of t.corner.handlers.click) fn({});
+  await t.tick();
+  for (const i of t.inputs()) i.value = 'senha-123';
+  await t.click(/Definir e entrar/);
+
+  assert.ok(t.maint.innerText.includes('Nova versão disponível: v0.1.3 (instalada: v0.1.2)'));
+  assert.ok(t.maint.innerText.includes('Atualizar para v0.1.3'));
+  assert.match(t.maint.innerText, /Verificar atualizações/);
+  await t.click(/Atualizar para v/);
+  assert.deepEqual(calls, ['install']);
+  assert.ok(t.maint.innerText.includes('Instalando v0.1.3'));
+  assert.deepEqual(t.errors, []);
+});
+
+test('manutenção: sem versão nova não mostra o botão Atualizar', async () => {
+  const t = setup();
+  for (const fn of t.corner.handlers.click) fn({});
+  await t.tick();
+  for (const i of t.inputs()) i.value = 'senha-123';
+  await t.click(/Definir e entrar/);
+  assert.ok(!/Atualizar para/.test(t.maint.innerText));
+  assert.match(t.maint.innerText, /Verificar atualizações/);
 });

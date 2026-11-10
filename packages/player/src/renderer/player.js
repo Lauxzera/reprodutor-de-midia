@@ -16,6 +16,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const withTimeout = (promise, ms, what) =>
   Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what}: tempo esgotado`)), ms))]);
 
+function applyUpdateBadge() {
+  const c = document.getElementById('corner');
+  if (c) c.classList.toggle('has-update', Boolean(state && state.update && state.update.newer));
+}
+
 function applySettings(s) {
   document.documentElement.style.setProperty('--fit', s.fit);
   document.documentElement.style.setProperty('--t', `${s.transitionMs}ms`);
@@ -189,9 +194,11 @@ async function loop() {
 async function boot() {
   state = await api.getState();
   applySettings(state.settings);
+  applyUpdateBadge();
   api.onChanged((s) => {
     state = s;
     applySettings(s.settings);
+    applyUpdateBadge();
     renderDebug();
   });
   api.heartbeat();

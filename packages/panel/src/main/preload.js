@@ -17,6 +17,11 @@ contextBridge.exposeInMainWorld('panelApi', {
     addPaths: (paths) => invoke('library:add-paths', paths),
     remove: (sha256) => invoke('library:remove', sha256),
   },
+  update: {
+    check: () => invoke('update:check'),
+    install: () => invoke('update:install'),
+    onProgress: (cb) => ipcRenderer.on('update:progress', (_e, p) => cb(p)),
+  },
   pair: {
     code: () => invoke('pair:code'),
   },

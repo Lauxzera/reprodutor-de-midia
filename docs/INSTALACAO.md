@@ -40,6 +40,10 @@ Para mexer no Windows com o player em tela cheia: clique no botão ⚙ do **cant
 
 O player se registra para abrir no login do Windows (`"autoStart": true` no `config.json`). Não é necessário o `install-autostart.ps1`, que é só para rodar pelo código-fonte.
 
+### Atualizações
+
+Com a versão 0.1.4 ou mais nova, o Player avisa quando há versão nova (pontinho laranja no botão ⚙). Clique no botão, digite a senha de manutenção e use **Atualizar para vX**; ele baixa, confere o hash, instala e reabre sozinho. Nas versões anteriores, use o comando de instalação do README uma vez.
+
 ## 4. Antes de levar o PC a um evento
 
 1. Publique as alterações no painel.

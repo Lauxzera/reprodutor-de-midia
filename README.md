@@ -20,6 +20,16 @@ No **computador de gestão**, troque `-App player` por `-App painel`. Para já d
 
 Para publicar uma versão nova: `powershell -ExecutionPolicy Bypass -File tools\release.ps1` (testa, gera os instaladores e cria o Release com `SHA256SUMS.txt`; precisa do `gh` autenticado e de `version` nova nos `package.json`).
 
+## Atualizar pelo próprio app
+
+A partir da versão 0.1.4, o Player e o Painel de mesa verificam sozinhos se há um Release novo no GitHub (ao abrir e a cada 6 h):
+
+- **Player:** o botão ⚙ do canto superior direito ganha um pontinho laranja e fica um pouco mais visível. Clique, digite a senha de manutenção e escolha **Atualizar para vX**. O player baixa o instalador, confere o SHA-256 publicado no Release, fecha, instala e **reabre sozinho** (cerca de um minuto; a TV fica sem imagem nesse tempo). *Verificar atualizações* força a consulta.
+- **Painel de mesa:** *Configurações* > **Atualizações**. O painel web já está sempre na versão mais recente.
+- Sem internet, a verificação falha em silêncio e tenta de novo depois. Para desligar no Player: `"updates": false` no `config.json`.
+- O instalador só é executado se o hash bater com o `SHA256SUMS.txt` do mesmo Release. Os instaladores não são assinados digitalmente, então a garantia é de integridade, não de autoria.
+- A primeira instalação da 0.1.4 (e de qualquer versão anterior à 0.1.4) ainda é pelo comando de instalação; daí em diante, pelo app.
+
 ## Gerar os instaladores
 
 ```bash

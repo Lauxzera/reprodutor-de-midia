@@ -4,7 +4,7 @@ const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron')
 const path = require('node:path');
 const fs = require('node:fs');
 const { Store } = require('./store');
-const { encodePair } = require('@reprodutor/shared');
+const { encodePair, checkForUpdate, downloadUpdate, launchInstaller } = require('@reprodutor/shared');
 const { createStorage, publicBaseUrl } = require('./storage');
 const { publishScreen } = require('./publish');
 const { IMAGE_EXT, VIDEO_EXT, screenKey } = require('@reprodutor/shared');
@@ -28,7 +28,36 @@ function currentStorage() {
   return { settings, storage };
 }
 
+let updateInfo = null;
+let updating = false;
+
 function registerIpc() {
+  // ---- atualizações (GitHub Releases) ----
+  ipcMain.handle('update:check', async () => {
+    try {
+      updateInfo = await checkForUpdate({ app: 'painel', current: app.getVersion() });
+      return { ok: true, current: updateInfo.current, latest: updateInfo.latest, newer: updateInfo.newer, notes: updateInfo.notes };
+    } catch (e) {
+      return { ok: false, current: app.getVersion(), error: e.message };
+    }
+  });
+
+  ipcMain.handle('update:install', async (event) => {
+    if (!app.isPackaged) return { ok: false, error: 'A atualização pelo app só funciona no programa instalado' };
+    if (updating) return { ok: false, error: 'Já existe uma atualização em andamento' };
+    if (!updateInfo || !updateInfo.newer) return { ok: false, error: 'Não há versão nova; verifique as atualizações primeiro' };
+    updating = true;
+    try {
+      const file = await downloadUpdate({ info: updateInfo, onProgress: (p) => event.sender.send('update:progress', p) });
+      launchInstaller(file, { appExe: process.execPath }); // o auxiliar reabre o painel depois de instalar
+      setTimeout(() => app.quit(), 1000);
+      return { ok: true, message: `Instalando v${updateInfo.latest}… o painel fecha e reabre sozinho em cerca de um minuto.` };
+    } catch (e) {
+      updating = false;
+      return { ok: false, error: `Atualização falhou: ${e.message}` };
+    }
+  });
+
   const settingsView = () => {
     const k = store.getKeys() || {};
     return { ...store.getSettings(), hasKeys: store.hasKeys(), hasReadKey: Boolean(k.readKeyId && k.readAppKey), readKeyId: k.readKeyId || '', baseUrl: publicBaseUrl(store.getSettings()) };
