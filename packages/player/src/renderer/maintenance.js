@@ -67,6 +67,14 @@
       showMenu();
     };
 
+    // Minimizar: fecha o menu (e a sessão) e esconde a janela; o player volta sozinho depois de alguns minutos.
+    const minimize = (action) => async () => {
+      const r = await api.maint.action(token, action);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (r.ok) close();
+      else msg.textContent = r.error;
+    };
+
     box(
       el('h1', {}, 'Manutenção'),
       el('p', {}, first ? 'Defina a senha de manutenção deste player.' : 'Digite a senha para continuar.'),
@@ -209,6 +217,8 @@
         { class: 'row' },
         el('button', { class: 'primary', onclick: run('sync') }, 'Sincronizar agora'),
         el('button', { onclick: showConfig }, 'Configurar conexão'),
+        el('button', { onclick: minimize('minimize') }, 'Minimizar o player'),
+        el('button', { onclick: minimize('windows-settings') }, 'Configurações do Windows'),
         el('button', { onclick: run('open-folder') }, 'Abrir pasta de dados'),
         el('button', { onclick: run('restart', 'Reiniciar o player?') }, 'Reiniciar'),
         el('button', { class: 'danger', onclick: run('quit', 'Encerrar o player? A TV ficará sem conteúdo.') }, 'Sair do player'),
@@ -224,6 +234,24 @@
     } else if (e.key === 'Escape' && isOpen()) {
       close();
     }
+  });
+
+  // Botão no canto superior direito: só aparece quando o mouse chega perto do canto (a TV fica limpa).
+  const corner = document.getElementById('corner');
+  let cursorTimer = null;
+  window.addEventListener('mousemove', (e) => {
+    document.body.classList.add('show-cursor');
+    const nearCorner = e.clientX > window.innerWidth - 140 && e.clientY < 110;
+    corner.classList.toggle('hidden', !nearCorner || isOpen());
+    clearTimeout(cursorTimer);
+    cursorTimer = setTimeout(() => {
+      document.body.classList.remove('show-cursor');
+      corner.classList.add('hidden');
+    }, 3000);
+  });
+  corner.addEventListener('click', () => {
+    corner.classList.add('hidden');
+    open();
   });
 
   window.__openMaint = open; // usado nos testes automatizados

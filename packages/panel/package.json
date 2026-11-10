@@ -1,7 +1,7 @@
 {
   "name": "@reprodutor/panel",
   "productName": "Reprodutor Painel",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Painel de gerenciamento do Reprodutor de Mídia",
   "author": "Reprodutor de Mídia",
   "private": true,

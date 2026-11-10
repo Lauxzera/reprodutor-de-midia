@@ -52,7 +52,23 @@ html, body {
   z-index: 10;
 }
 
-body.maint-open { cursor: default; }
+body.maint-open, body.show-cursor { cursor: default; }
+#corner {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 15;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 8px;
+  background: rgba(20, 22, 26, 0.72);
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+#corner:hover { background: rgba(76, 141, 255, 0.9); }
 
 #maint {
   position: fixed;

@@ -36,6 +36,8 @@ Digite as credenciais somente no painel. Elas ficam criptografadas naquele compu
    - ative o login automático do Windows (`Win+R` > `netplwiz`);
    - ajuste as *Horas ativas* do Windows Update para cobrir o horário da loja.
 
+Para mexer no Windows com o player em tela cheia: passe o mouse no **canto superior direito**, clique no botão ⚙, digite a senha de manutenção e escolha **Minimizar o player** ou **Configurações do Windows**. O player volta sozinho à tela cheia em 10 minutos.
+
 O player se registra para abrir no login do Windows (`"autoStart": true` no `config.json`). Não é necessário o `install-autostart.ps1`, que é só para rodar pelo código-fonte.
 
 ## 4. Antes de levar o PC a um evento

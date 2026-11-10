@@ -156,6 +156,13 @@ function main() {
       case 'open-folder':
         await shell.openPath(dataDir);
         return { ok: true, message: 'Pasta aberta' };
+      case 'minimize':
+        minimizeWindow();
+        return { ok: true, message: `Player minimizado; volta sozinho em ${MINIMIZE_MINUTES} min (ou clique no ícone na barra de tarefas).` };
+      case 'windows-settings':
+        minimizeWindow();
+        await shell.openExternal('ms-settings:');
+        return { ok: true, message: 'Abrindo as configurações do Windows…' };
       case 'restart':
         setTimeout(() => restart('pedido pela manutenção'), 200);
         return { ok: true, message: 'Reiniciando…' };
@@ -244,6 +251,33 @@ function main() {
 
   // ---- janela ----
 
+  // Minimizar para acessar o Windows: o player volta sozinho à tela cheia depois de um tempo,
+  // para a TV não ficar sem conteúdo se esquecerem a janela minimizada.
+  const MINIMIZE_MINUTES = 10;
+  let restoreTimer = null;
+  const restoreWindow = () => {
+    clearTimeout(restoreTimer);
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    if (!windowed) {
+      win.setFullScreen(true);
+      win.setAlwaysOnTop(true, 'screen-saver');
+    }
+    win.show();
+    win.focus();
+  };
+  const minimizeWindow = () => {
+    if (!win || win.isDestroyed()) return;
+    log(`Janela minimizada pela manutenção (volta em ${MINIMIZE_MINUTES} min)`);
+    win.setAlwaysOnTop(false);
+    win.minimize();
+    clearTimeout(restoreTimer);
+    restoreTimer = setTimeout(() => {
+      log('Janela restaurada automaticamente');
+      restoreWindow();
+    }, MINIMIZE_MINUTES * 60000);
+  };
+
   function createWindow() {
     win = new BrowserWindow({
       width: 1280,
@@ -266,6 +300,14 @@ function main() {
     if (!windowed) win.setAlwaysOnTop(true, 'screen-saver');
     win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
     win.once('ready-to-show', () => win.show());
+    // Voltou da barra de tarefas (ou do tempo limite): tela cheia e por cima de novo.
+    win.on('restore', () => {
+      clearTimeout(restoreTimer);
+      if (!windowed) {
+        win.setFullScreen(true);
+        win.setAlwaysOnTop(true, 'screen-saver');
+      }
+    });
 
     // Alt+F4 e afins não fecham o player; só a manutenção (ou o desligamento do Windows).
     win.on('close', (e) => {
