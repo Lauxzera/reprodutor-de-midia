@@ -39,6 +39,12 @@ O código leva a chave de leitura: trate como senha. A chave de gravação nunca
 
 `?demo` no endereço abre o painel com dados só em memória, sem conectar a nada.
 
+## Conversão automática de vídeos (iPhone/HEVC)
+
+Ao enviar um vídeo em HEVC (H.265, o padrão do iPhone), o painel web o **converte para H.264 em MP4** antes de enviar: no navegador, sem servidor, limitado a 1080p e 30 fps. O andamento aparece como "convertendo N%". O arquivo convertido é o que vai para o bucket (menor e compatível com o Player).
+
+Requisito: o navegador precisa decodificar HEVC. No Windows isso vem da extensão *HEVC Video Extensions* da Microsoft ou de uma GPU compatível; no Mac funciona direto. Se não for possível, o painel avisa e você converte com o HandBrake. Vídeos H.264 e imagens passam sem conversão.
+
 ## Cuidados
 
 - A senha do navegador **não é recuperável**. Se esquecer, use "Esquecer as chaves deste navegador" e informe as chaves de novo.

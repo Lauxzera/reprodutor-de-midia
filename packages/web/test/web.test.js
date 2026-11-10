@@ -197,3 +197,34 @@ test('API web: recusa vídeo só HEVC (iPhone) e aceita H.264', async () => {
   assert.match(r.skipped[0].reason, /HEVC.*H\.264/);
   assert.equal([...storage.objects.keys()].filter((k) => k.startsWith('media/')).length, 1, 'o HEVC não foi enviado ao bucket');
 });
+
+test('API web: com conversor, vídeo HEVC é convertido e o MP4 H.264 é o que vai ao bucket', async () => {
+  const storage = createMemoryS3();
+  const settings = { endpoint: 'https://s3.us-east-005.backblazeb2.com', region: '', bucket: 'b', privateBucket: true, publicBaseUrl: '' };
+  const hevc = new File([Buffer.concat([Buffer.from('....ftypqt  ....moov'), Buffer.from('hvc1'), crypto.randomBytes(800)])], 'iphone.mov');
+  const calls = [];
+  const convertVideo = async (file, { onProgress }) => {
+    calls.push(file.name);
+    onProgress(0.5);
+    onProgress(1);
+    return new File([Buffer.concat([Buffer.from('....ftypisom....moov'), Buffer.from('avc1'), crypto.randomBytes(300)])], 'iphone.mp4', { type: 'video/mp4' });
+  };
+  const api = createWebApi({ storage, settings, saveSettings: async () => {}, convertVideo });
+  const msgs = [];
+  api.library.onProgress((m) => msgs.push(m));
+
+  const r = await api.library.addPaths([hevc]);
+  assert.equal(r.added.length, 1);
+  assert.deepEqual(calls, ['iphone.mov']);
+  const lib = await api.library.list();
+  assert.equal(lib[0].name, 'iphone.mp4');
+  assert.equal(lib[0].ext, '.mp4');
+  assert.ok(storage.objects.has(`media/${lib[0].sha256}.mp4`));
+  assert.ok(msgs.some((m) => /convertendo de HEVC/.test(m)));
+
+  // conversor que falha (navegador sem decodificador de HEVC): explica e não envia nada
+  const failing = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => { throw new Error('este navegador não consegue decodificar o vídeo'); } });
+  const f = await failing.library.addPaths([hevc]);
+  assert.equal(f.added.length, 0);
+  assert.match(f.skipped[0].reason, /não consegue decodificar/);
+});
