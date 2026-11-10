@@ -228,3 +228,33 @@ test('API web: com conversor, vídeo HEVC é convertido e o MP4 H.264 é o que v
   assert.equal(f.added.length, 0);
   assert.match(f.skipped[0].reason, /não consegue decodificar/);
 });
+
+test('limpeza de órfãs: não apaga o que uma tela publicada ainda usa e avisa o motivo', async () => {
+  const storage = createMemoryS3();
+  const settings = { endpoint: 'https://s3.us-east-005.backblazeb2.com', region: '', bucket: 'b', privateBucket: true, publicBaseUrl: '' };
+  const api = createWebApi({ storage, settings, saveSettings: async () => {} });
+
+  const a = new File([crypto.randomBytes(900)], 'a.png');
+  const added = await api.library.addPaths([a]);
+  const project = await api.project.get();
+  project.screens[0].items.push({ id: 'x', sha256: added.added[0], durationSec: 5 });
+  await api.project.save(project);
+  await api.publish.run(project.screens[0].id); // tela publicada usa a.png
+
+  // tira da playlist e da biblioteca, mas não republica
+  project.screens[0].items = [];
+  await api.project.save(project);
+  await api.library.remove(added.added[0]);
+
+  const r1 = await api.cleanOrphans();
+  assert.equal(r1.removed, 0);
+  assert.equal(r1.held.length, 1);
+  assert.deepEqual(r1.held[0].screens, [project.screens[0].id]);
+
+  // republica sem o arquivo: agora ele é órfão de verdade
+  await api.publish.run(project.screens[0].id);
+  const r2 = await api.cleanOrphans();
+  assert.equal(r2.removed, 1);
+  assert.equal(r2.held.length, 0);
+  assert.equal([...storage.objects.keys()].filter((k) => k.startsWith('media/')).length, 0);
+});

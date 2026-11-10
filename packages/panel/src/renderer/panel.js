@@ -750,7 +750,11 @@ function viewSettings() {
                   if (!confirm('Apagar do bucket as mídias que não estão na biblioteca nem em nenhuma tela publicada?')) return;
                   try {
                     const r = await api.cleanOrphans();
-                    toast(r.removed ? `${r.removed} arquivo(s) órfão(s) apagado(s) (${formatSize(r.bytes)})` : 'Nenhuma mídia órfã', 'success');
+                    const heldBytes = (r.held || []).reduce((n, o) => n + o.size, 0);
+                    const heldMsg = r.held && r.held.length ? `
+${r.held.length} arquivo(s) (${formatSize(heldBytes)}) continuam porque a tela publicada "${[...new Set(r.held.flatMap((o) => o.screens))].join('", "')}" ainda os usa. Monte a playlist nova, clique em Publicar e rode a limpeza de novo.` : '';
+                    toast((r.removed ? `${r.removed} arquivo(s) órfão(s) apagado(s) (${formatSize(r.bytes)})` : 'Nenhuma mídia órfã para apagar') + heldMsg, r.held && r.held.length && !r.removed ? 'error' : 'success');
+                    loadQuota(true);
                   } catch (e) {
                     toast(e.message, 'error');
                   }

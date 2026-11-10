@@ -241,15 +241,19 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getR
     /** Apaga do bucket as mídias que não estão na biblioteca nem em nenhuma tela publicada. */
     cleanOrphans: async () => {
       const entries = await loadLibrary();
-      const keep = new Set(entries.map((e) => mediaKey(e.sha256, e.ext)));
+      const inLibrary = new Set(entries.map((e) => mediaKey(e.sha256, e.ext)));
+      const publishedBy = new Map(); // arquivo -> telas publicadas que ainda o usam
       for (const obj of await storage.list('screens/')) {
         const m = await storage.getJson(obj.key);
-        for (const it of (m && m.items) || []) keep.add(it.file);
+        for (const it of (m && m.items) || []) publishedBy.set(it.file, [...(publishedBy.get(it.file) || []), (m.screenId || obj.key)]);
       }
-      const orphans = (await storage.list('media/')).filter((o) => !keep.has(o.key));
+      const media = await storage.list('media/');
+      const orphans = media.filter((o) => !inLibrary.has(o.key) && !publishedBy.has(o.key));
+      // Fora da biblioteca, mas ainda citados por uma tela publicada: não pode apagar (o player pararia de achar o arquivo).
+      const held = media.filter((o) => !inLibrary.has(o.key) && publishedBy.has(o.key)).map((o) => ({ key: o.key, size: o.size, screens: [...new Set(publishedBy.get(o.key))] }));
       for (const o of orphans) await storage.delete(o.key);
       usage = null; // será medido de novo
-      return { removed: orphans.length, bytes: orphans.reduce((n, o) => n + o.size, 0) };
+      return { removed: orphans.length, bytes: orphans.reduce((n, o) => n + o.size, 0), held };
     },
   };
 }
