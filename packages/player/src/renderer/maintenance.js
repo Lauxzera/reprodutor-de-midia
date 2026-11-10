@@ -67,14 +67,6 @@
       showMenu();
     };
 
-    // Minimizar: fecha o menu (e a sessão) e esconde a janela; o player volta sozinho depois de alguns minutos.
-    const minimize = (action) => async () => {
-      const r = await api.maint.action(token, action);
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
-      if (r.ok) close();
-      else msg.textContent = r.error;
-    };
-
     box(
       el('h1', {}, 'Manutenção'),
       el('p', {}, first ? 'Defina a senha de manutenção deste player.' : 'Digite a senha para continuar.'),
@@ -201,6 +193,14 @@
       if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
       if (action === 'sync') return showMenu(r.message);
       msg.textContent = r.ok ? r.message : r.error;
+    };
+
+    // Minimizar: fecha o menu (e a sessão) e esconde a janela; o player volta sozinho depois de alguns minutos.
+    const minimize = (action) => async () => {
+      const r = await api.maint.action(token, action);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (r.ok) close();
+      else msg.textContent = r.error;
     };
 
     box(
