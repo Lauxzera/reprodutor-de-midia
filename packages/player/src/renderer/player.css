@@ -80,6 +80,10 @@ body.maint-open { cursor: default; }
 #maint h1 { margin: 0; font-size: 18px; }
 #maint p { margin: 0; color: #9097a3; }
 #maint label { display: flex; flex-direction: column; gap: 4px; color: #9097a3; font-size: 13px; }
+#maint details { color: #9097a3; font-size: 13px; }
+#maint details summary { cursor: pointer; margin-bottom: 8px; }
+#maint details label { margin-bottom: 8px; }
+#maint textarea, #maint select { background: #14161a; color: inherit; border: 1px solid #2e333d; border-radius: 6px; padding: 9px 12px; font: inherit; resize: vertical; }
 #maint input {
   background: #14161a;
   color: inherit;

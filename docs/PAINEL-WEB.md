@@ -22,6 +22,14 @@ node tools\b2-cors.js https://lauxzera.github.io
 
 A chave precisa da permissão de escrever no bucket (a de leitura e escrita criada pelo guia do B2 já tem). O script só mexe na regra `painel-web`. `npm run web-check` (mesmas variáveis, mais `B2_ENDPOINT` e `WEB_ORIGIN`) confere o cliente S3 do painel web e o CORS contra o B2 real.
 
+## Parear o Player (código de pareamento)
+
+1. Em **Configurações**, marque *Bucket privado* e informe a **chave de leitura do player** (a chave Read Only do B2). Ela fica criptografada junto com as outras.
+2. Na aba **Publicar**, o painel mostra o **código de pareamento** (`RM1-...`): endpoint, bucket, chave de leitura e intervalo, num texto só.
+3. No PC das TVs: instale já pareado com `install.ps1 -App player -Pair RM1-...` (veja o README), ou no player use `Ctrl+Shift+M` > *Configurar conexão*, cole o código e escolha a tela na lista.
+
+O código leva a chave de leitura: trate como senha. A chave de gravação nunca entra nele.
+
 ## Usar
 
 1. Abra o endereço acima e conecte o bucket (primeiro acesso).

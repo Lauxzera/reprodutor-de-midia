@@ -16,7 +16,7 @@ Instala a versão mais recente do [Release](https://github.com/Lauxzera/reprodut
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/Lauxzera/reprodutor-de-midia/main/install.ps1 -OutFile $env:TEMP\rm-install.ps1; & $env:TEMP\rm-install.ps1 -App player"
 ```
 
-No **computador de gestão**, troque `-App player` por `-App painel`. Para já configurar o player, acrescente `-Config C:\caminho\config.json` (cópia do `config.json` do player; ele fica fora do repositório porque leva a chave de leitura). `-Tag v0.1.0` fixa uma versão. Rodar de novo atualiza por cima, preservando os dados.
+No **computador de gestão**, troque `-App player` por `-App painel`. Para já deixar o player ligado ao seu bucket, use o **código de pareamento** da aba Publicar do painel: acrescente `-Pair RM1-...`. A tela é escolhida sozinha se só houver uma publicada; senão, escolha na lista em `Ctrl+Shift+M` > *Configurar conexão*. (`-Config C:\caminho\config.json` continua valendo para quem já tem um `config.json` pronto; ele fica fora do repositório porque leva a chave de leitura.) `-Tag v0.1.0` fixa uma versão. Rodar de novo atualiza por cima, preservando os dados.
 
 Para publicar uma versão nova: `powershell -ExecutionPolicy Bypass -File tools\release.ps1` (testa, gera os instaladores e cria o Release com `SHA256SUMS.txt`; precisa do `gh` autenticado e de `version` nova nos `package.json`).
 
@@ -66,7 +66,7 @@ Passo a passo e verificação com as suas credenciais: [docs/B2.md](docs/B2.md) 
 1. Crie uma conta no B2, um **bucket privado** (sem cartão; o público exige cartão ou US$ 1) e duas **Application Keys** restritas a ele: leitura e gravação (só no painel) e **somente leitura** (para o player, que assina as leituras com SigV4).
 2. **Painel** (`npm run panel`): em *Configurações*, informe endpoint S3, bucket e chaves e use *Salvar e testar conexão*.
 3. Em *Biblioteca* adicione arquivos, monte a *Playlist* (arraste para ordenar, defina duração e *Agenda* por item) e clique em *Publicar*.
-4. **Player** (PC das TVs): pressione `Ctrl+Shift+M`, defina a senha, escolha *Configurar conexão* e cole o JSON que a aba *Publicar* mostra (ele grava o `config.json` e reinicia). A pasta de dados é `%APPDATA%\Reprodutor Player\data` no app instalado; `PLAYER_DATA_DIR` escolhe outra.
+4. **Player** (PC das TVs): pressione `Ctrl+Shift+M`, defina a senha, escolha *Configurar conexão*, cole o **código de pareamento** da aba *Publicar* e escolha a tela na lista (ele grava o `config.json` e reinicia). Antes, informe a chave de leitura do player em *Configurações* do painel. A pasta de dados é `%APPDATA%\Reprodutor Player\data` no app instalado; `PLAYER_DATA_DIR` escolhe outra.
 
 ### Atalhos do player
 

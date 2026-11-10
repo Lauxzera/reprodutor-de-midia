@@ -4,6 +4,7 @@ const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron')
 const path = require('node:path');
 const fs = require('node:fs');
 const { Store } = require('./store');
+const { encodePair } = require('@reprodutor/shared');
 const { createStorage, publicBaseUrl } = require('./storage');
 const { publishScreen } = require('./publish');
 const { IMAGE_EXT, VIDEO_EXT, screenKey } = require('@reprodutor/shared');
@@ -28,11 +29,28 @@ function currentStorage() {
 }
 
 function registerIpc() {
-  ipcMain.handle('settings:get', () => ({ ...store.getSettings(), hasKeys: store.hasKeys(), baseUrl: publicBaseUrl(store.getSettings()) }));
+  const settingsView = () => {
+    const k = store.getKeys() || {};
+    return { ...store.getSettings(), hasKeys: store.hasKeys(), hasReadKey: Boolean(k.readKeyId && k.readAppKey), readKeyId: k.readKeyId || '', baseUrl: publicBaseUrl(store.getSettings()) };
+  };
+  ipcMain.handle('settings:get', () => settingsView());
 
-  ipcMain.handle('settings:save', (_e, patch, keys) => {
-    store.saveSettings(patch, keys);
-    return { ...store.getSettings(), hasKeys: store.hasKeys(), baseUrl: publicBaseUrl(store.getSettings()) };
+  ipcMain.handle('settings:save', (_e, patch, keys, readKeys) => {
+    store.saveSettings(patch, keys, readKeys);
+    return settingsView();
+  });
+
+  // Código de pareamento do Player: endpoint + bucket + chave de leitura + intervalo.
+  ipcMain.handle('pair:code', () => {
+    const s = store.getSettings();
+    const k = store.getKeys() || {};
+    if (s.type !== 'b2' || !s.endpoint || !s.bucket) return { ok: false, error: 'Configure o bucket do B2 em Configurações.' };
+    if (s.privateBucket && !(k.readKeyId && k.readAppKey)) return { ok: false, error: 'Informe a chave de leitura do player em Configurações.' };
+    try {
+      return { ok: true, code: encodePair({ endpoint: s.endpoint, bucket: s.bucket, keyId: s.privateBucket ? k.readKeyId : '', secretKey: s.privateBucket ? k.readAppKey : '', pollSeconds: s.privateBucket ? 120 : 60, publicBaseUrl: s.publicBaseUrl }) };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
   });
 
   ipcMain.handle('settings:test', async () => {

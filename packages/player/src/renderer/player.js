@@ -37,8 +37,12 @@ function renderDebug() {
 function showIdle(show) {
   idleEl.classList.toggle('hidden', !show);
   if (!show || !state) return;
-  idleDetail.textContent = !state.configured
-    ? 'Player não configurado. Pressione Ctrl+Shift+M para definir a senha e configurar a conexão.'
+  idleDetail.textContent = state.needsScreen
+    ? state.screenChoices && state.screenChoices.length > 1
+      ? `Há ${state.screenChoices.length} telas publicadas. Pressione Ctrl+Shift+M > Configurar conexão para escolher a deste player.`
+      : 'Pareado. Aguardando uma tela ser publicada pelo painel…'
+    : !state.configured
+    ? 'Player não configurado. Pressione Ctrl+Shift+M para definir a senha e colar o código de pareamento.'
     : state.status && state.status.state === 'downloading'
       ? state.status.message
       : state.status && state.status.state === 'error'

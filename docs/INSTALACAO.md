@@ -23,13 +23,13 @@ Digite as credenciais somente no painel. Elas ficam criptografadas naquele compu
 2. Abra o painel, vá em **Configurações**, escolha *Backblaze B2*, preencha endpoint, bucket, keyID e applicationKey e clique em **Salvar e testar conexão**. Deve aparecer "Conexão OK".
 3. Em **Biblioteca** adicione imagens e vídeos. Prefira vídeos MP4 (H.264).
 4. Em **Playlist** monte a ordem, defina o tempo de cada imagem e, se quiser, a **Agenda** de cada item.
-5. Em **Publicar**, clique em *Publicar agora*. Depois copie o bloco JSON mostrado nessa aba: ele leva a URL do bucket e o ID da tela para o player.
+5. Em **Publicar**, clique em *Publicar agora*. Em **Configurações**, informe a chave de leitura do player: a aba Publicar passa a mostrar o **código de pareamento** (`RM1-...`), que leva o bucket e a chave de leitura para o player.
 
 ## 3. Player (PC das TVs)
 
 1. Execute `ReprodutorPlayer-Setup-<versão>.exe`. O player abre em tela cheia.
 2. Na tela "Player não configurado", pressione **Ctrl+Shift+M**. Na primeira vez ele pede para **definir a senha de manutenção**. Guarde essa senha.
-3. No menu de manutenção, clique em **Configurar conexão**, cole o JSON copiado do painel (ou preencha os campos) e clique em **Salvar e reiniciar**.
+3. No menu de manutenção, clique em **Configurar conexão**, cole o **código de pareamento** copiado do painel, escolha a tela na lista e clique em **Salvar e reiniciar**. (Atalho: instalar com `install.ps1 -App player -Pair <código>` já grava a configuração; a tela é escolhida sozinha se só houver uma publicada.)
 4. O player baixa as mídias e começa a tocar. Para conferir: **Ctrl+Shift+D** mostra revisão, itens no disco e estado da sincronização.
 5. Para o PC ligar sozinho tocando, faça uma vez:
    - rode `tools\prepare-pc.ps1` (desliga suspensão, apagar a tela e hibernação);

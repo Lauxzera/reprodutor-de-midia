@@ -8,6 +8,7 @@ const { mediaTypeFromExt, screenKey, mediaKey } = require('@reprodutor/shared');
 const { publishScreen } = require('../../panel/src/main/publish');
 const { sha256Blob } = require('./sha256');
 const { assessStorage, fmtBytes } = require('../../shared/src/quota');
+const { encodePair } = require('../../shared/src/pair');
 
 const LIBRARY_KEY = 'admin/library.json';
 const PROJECT_KEY = 'admin/project.json';
@@ -43,7 +44,11 @@ const extOf = (name) => {
  * @param {Function} [o.logout]
  * @param {Function} [o.pickFiles] () => Promise<File[]>   (seletor de arquivos do navegador)
  */
-function createWebApi({ storage, settings, saveSettings, logout, pickFiles }) {
+function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getReadKey = () => null }) {
+  const viewSettings = () => {
+    const rk = getReadKey();
+    return { type: 'b2', ...settings, hasKeys: true, hasReadKey: Boolean(rk), readKeyId: rk ? rk.keyId : '', baseUrl: baseUrlFor(settings) };
+  };
   let library = null; // entradas (sem url/path)
   const localFiles = new Map(); // sha256 -> File desta sessão (para reenviar se faltar no bucket)
   const publishListeners = [];
@@ -129,10 +134,10 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles }) {
   return {
     web: true,
     settings: {
-      get: async () => ({ type: 'b2', ...settings, hasKeys: true, baseUrl: baseUrlFor(settings) }),
-      save: async (patch, keys) => {
-        await saveSettings({ endpoint: patch.endpoint, region: patch.region, bucket: patch.bucket, publicBaseUrl: patch.publicBaseUrl || '', privateBucket: Boolean(patch.privateBucket) }, keys);
-        return { type: 'b2', ...settings, hasKeys: true, baseUrl: baseUrlFor(settings) };
+      get: async () => viewSettings(),
+      save: async (patch, keys, readKeys) => {
+        await saveSettings({ endpoint: patch.endpoint, region: patch.region, bucket: patch.bucket, publicBaseUrl: patch.publicBaseUrl || '', privateBucket: Boolean(patch.privateBucket) }, keys, readKeys);
+        return viewSettings();
       },
       test: async () => {
         try {
@@ -197,6 +202,19 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles }) {
       onProgress: (cb) => publishListeners.push(cb),
     },
     pathForFile: (file) => file,
+    pair: {
+      // Código de pareamento do Player: endpoint + bucket + chave de leitura + intervalo.
+      code: async () => {
+        const rk = getReadKey();
+        if (!settings.endpoint || !settings.bucket) return { ok: false, error: 'Configure o bucket do B2 em Configurações.' };
+        if (settings.privateBucket && !rk) return { ok: false, error: 'Informe a chave de leitura do player em Configurações.' };
+        try {
+          return { ok: true, code: encodePair({ endpoint: settings.endpoint, bucket: settings.bucket, keyId: settings.privateBucket ? rk.keyId : '', secretKey: settings.privateBucket ? rk.appKey : '', pollSeconds: settings.privateBucket ? 120 : 60, publicBaseUrl: settings.publicBaseUrl }) };
+        } catch (e) {
+          return { ok: false, error: e.message };
+        }
+      },
+    },
     quota: {
       get: async () => usage || refreshUsage(),
       refresh: refreshUsage,

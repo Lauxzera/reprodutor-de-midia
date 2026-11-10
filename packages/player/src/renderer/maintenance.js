@@ -85,14 +85,61 @@
     const cur = await api.maint.getConfig(token);
     if (!cur.ok) return showLogin('Sessão expirada. Digite a senha novamente.');
 
-    const baseUrl = el('input', { type: 'text', placeholder: 'https://meu-bucket.s3.us-west-004.backblazeb2.com', value: cur.baseUrl || '' });
-    const screenId = el('input', { type: 'text', placeholder: 'loja', value: cur.screenId || '' });
-    const poll = el('input', { type: 'number', min: '5', max: '3600', value: String(cur.pollSeconds || 60) });
-    const keyId = el('input', { type: 'text', placeholder: 'keyID da chave SOMENTE LEITURA (bucket privado)', value: cur.keyId || '' });
+    const code = el('textarea', { rows: '3', placeholder: 'Cole aqui o código de pareamento (começa com RM1-). Ele está na aba Publicar do painel.' });
+    const status = el('div', { class: 'msg' });
+    const screenSel = el('select', {});
+    const screenId = el('input', { type: 'text', placeholder: 'ou digite o ID da tela', value: cur.screenId || '' });
+    const poll = el('input', { type: 'number', min: '5', max: '3600', value: String(cur.pollSeconds || 120) });
+    const baseUrl = el('input', { type: 'text', placeholder: 'https://s3.<região>.backblazeb2.com/<bucket>', value: cur.baseUrl || '' });
+    const keyId = el('input', { type: 'text', placeholder: 'keyID da chave SOMENTE LEITURA', value: cur.keyId || '' });
     const secret = el('input', { type: 'password', placeholder: cur.hasSecret ? '(mantida; digite para trocar)' : 'applicationKey da chave somente leitura' });
     const msg = el('div', { class: 'msg' });
+    let paired = false; // credenciais do código estão guardadas no processo principal
 
-    // Aceita colar o bloco JSON que o painel mostra na aba Publicar.
+    const fillScreens = (ids, keep) => {
+      screenSel.replaceChildren(el('option', { value: '' }, ids.length ? 'Escolha a tela…' : 'Nenhuma tela publicada ainda'), ...ids.map((id) => el('option', { value: id }, id)));
+      const want = keep || screenId.value;
+      if (want && ids.includes(want)) screenSel.value = want;
+      else if (ids.length === 1) screenSel.value = ids[0];
+      if (screenSel.value) screenId.value = screenSel.value;
+    };
+    screenSel.addEventListener('change', () => {
+      if (screenSel.value) screenId.value = screenSel.value;
+    });
+    fillScreens(cur.screens || []);
+
+    const refreshScreens = async () => {
+      const r = await api.maint.listScreens(token);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (r.ok) {
+        fillScreens(r.screens);
+        status.textContent = r.screens.length ? `${r.screens.length} tela(s) publicada(s).` : 'Nenhuma tela publicada ainda: publique pelo painel e clique em "Atualizar lista".';
+      } else {
+        status.textContent = r.error;
+      }
+    };
+
+    // Colar o código de pareamento: valida e já busca as telas publicadas.
+    code.addEventListener('input', async () => {
+      const text = code.value.trim();
+      if (text.length < 12) return;
+      const r = await api.maint.applyPair(token, text);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok) {
+        paired = false;
+        status.textContent = r.error;
+        return;
+      }
+      paired = true;
+      baseUrl.value = r.baseUrl;
+      keyId.value = r.keyId;
+      secret.value = '';
+      poll.value = String(r.pollSeconds);
+      fillScreens(r.screens);
+      status.textContent = r.screensError ? `Código aceito, mas não consegui listar as telas: ${r.screensError}` : r.screens.length ? `Código aceito. ${r.screens.length} tela(s) publicada(s): escolha abaixo.` : 'Código aceito. Nenhuma tela publicada ainda: publique pelo painel e clique em "Atualizar lista".';
+    });
+
+    // Compatibilidade: ainda aceita colar o JSON antigo no campo da URL.
     baseUrl.addEventListener('input', () => {
       const text = baseUrl.value.trim();
       if (!text.startsWith('{')) return;
@@ -110,23 +157,27 @@
     });
 
     const save = async () => {
-      const r = await api.maint.saveConfig(token, { baseUrl: baseUrl.value, screenId: screenId.value, pollSeconds: Number(poll.value), keyId: keyId.value, secretKey: secret.value });
+      const payload = paired
+        ? { usePair: true, screenId: screenId.value, pollSeconds: Number(poll.value) }
+        : { baseUrl: baseUrl.value, screenId: screenId.value, pollSeconds: Number(poll.value), keyId: keyId.value, secretKey: secret.value };
+      const r = await api.maint.saveConfig(token, payload);
       if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
       msg.textContent = r.ok ? r.message : r.error;
     };
 
     box(
       el('h1', {}, 'Conexão com o bucket'),
-      el('p', {}, 'Cole aqui o JSON da aba Publicar do painel ou preencha os campos.'),
-      el('label', {}, 'URL do bucket (pública, ou https://s3.<região>.backblazeb2.com/<bucket> se privado)', baseUrl),
-      el('label', {}, 'keyID de leitura (só bucket privado)', keyId),
-      el('label', {}, 'applicationKey de leitura', secret),
-      el('label', {}, 'ID da tela', screenId),
+      el('p', {}, 'Cole o código de pareamento do painel e escolha a tela. Só isso.'),
+      el('label', {}, 'Código de pareamento', code),
+      status,
+      el('label', {}, 'Tela', screenSel),
+      el('div', { class: 'row' }, el('button', { onclick: refreshScreens }, 'Atualizar lista')),
       el('label', {}, 'Consultar a cada (segundos)', poll),
+      el('details', {}, el('summary', {}, 'Avançado: preencher à mão'), el('label', {}, 'URL do bucket', baseUrl), el('label', {}, 'keyID de leitura', keyId), el('label', {}, 'applicationKey de leitura', secret), el('label', {}, 'ID da tela', screenId)),
       msg,
       el('div', { class: 'row' }, el('button', { class: 'primary', onclick: save }, 'Salvar e reiniciar'), el('button', { onclick: () => showMenu() }, 'Voltar')),
     );
-    baseUrl.focus();
+    code.focus();
   }
 
   async function showMenu(message = '') {

@@ -75,12 +75,24 @@ class Store {
     }
   }
 
-  saveSettings(patch, keys) {
+  /** Grava o conteúdo (já mesclado) do arquivo de segredos. */
+  _writeSecrets(obj) {
+    fs.writeFileSync(path.join(this.dir, 'secrets.bin'), this.cipher.encrypt(JSON.stringify(obj)));
+  }
+
+  /** Chave SOMENTE LEITURA do player (vai dentro do código de pareamento). */
+  saveReadKey(readKeys) {
+    if (!readKeys || !readKeys.keyId || !readKeys.appKey) return;
+    this._writeSecrets({ ...(this.getKeys() || {}), readKeyId: readKeys.keyId, readAppKey: readKeys.appKey });
+  }
+
+  saveSettings(patch, keys, readKeys) {
     const next = { ...this.getSettings(), ...patch };
     this._write('settings.json', next);
     if (keys && keys.keyId && keys.appKey) {
-      fs.writeFileSync(path.join(this.dir, 'secrets.bin'), this.cipher.encrypt(JSON.stringify(keys)));
+      this._writeSecrets({ ...(this.getKeys() || {}), keyId: keys.keyId, appKey: keys.appKey });
     }
+    this.saveReadKey(readKeys);
     return next;
   }
 

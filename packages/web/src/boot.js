@@ -56,12 +56,13 @@ function makeStorage(settings, creds) {
   return createS3({ endpoint: settings.endpoint, region: settings.region || regionFromEndpoint(settings.endpoint), bucket: settings.bucket, keyId: creds.keyId, appKey: creds.appKey });
 }
 
-function start({ storage, settings, saveSettings, logout }) {
+function start({ storage, settings, saveSettings, logout, getReadKey }) {
   const api = createWebApi({
     storage,
     settings,
     saveSettings,
     logout,
+    getReadKey,
     pickFiles: () =>
       new Promise((resolve) => {
         const input = el('input', { type: 'file', multiple: true, accept: 'image/*,video/*,.mp4,.m4v,.mov,.webm' });
@@ -81,7 +82,8 @@ function demo() {
   const settings = { endpoint: 'https://s3.exemplo.backblazeb2.com', region: 'exemplo', bucket: 'demonstracao', privateBucket: true, publicBaseUrl: '' };
   const banner = el('div', { class: 'demo-banner' }, 'Modo demonstração: os dados ficam só na memória desta aba e somem ao fechar.');
   document.body.prepend(banner);
-  start({ storage: createMemoryS3(), settings, saveSettings: async (p) => Object.assign(settings, p), logout: async () => location.reload() });
+  let readKey = { keyId: 'LEITURA-DEMO', appKey: 'demo-demo-demo' };
+  start({ storage: createMemoryS3(), settings, saveSettings: async (p, _k, rk) => { Object.assign(settings, p); if (rk) readKey = rk; }, logout: async () => location.reload(), getReadKey: () => readKey });
 }
 
 function setup() {
@@ -172,16 +174,23 @@ function launch(settings, creds, passphrase) {
   // O painel guarda uma referência fixa ao storage; este proxy repassa para o cliente atual (muda se as chaves mudarem).
   const storage = new Proxy({}, { get: (_t, k) => (typeof current[k] === 'function' ? (...a) => current[k](...a) : current[k]) });
 
-  const saveSettings = async (patch, keys) => {
+  const saveSettings = async (patch, keys, readKeys) => {
     Object.assign(settings, patch);
     store.set(LS_SETTINGS, JSON.stringify(settings));
+    let changed = false;
     if (keys && keys.keyId && keys.appKey) {
-      creds = { keyId: keys.keyId, appKey: keys.appKey };
-      store.set(LS_VAULT, JSON.stringify(await vault.seal(passphrase, creds)));
+      creds = { ...creds, keyId: keys.keyId, appKey: keys.appKey };
+      changed = true;
     }
+    if (readKeys && readKeys.keyId && readKeys.appKey) {
+      creds = { ...creds, readKeyId: readKeys.keyId, readAppKey: readKeys.appKey };
+      changed = true;
+    }
+    if (changed) store.set(LS_VAULT, JSON.stringify(await vault.seal(passphrase, creds)));
     current = makeStorage(settings, creds);
   };
-  start({ storage, settings, saveSettings, logout: async () => location.reload() });
+  const getReadKey = () => (creds.readKeyId && creds.readAppKey ? { keyId: creds.readKeyId, appKey: creds.readAppKey } : null);
+  start({ storage, settings, saveSettings, logout: async () => location.reload(), getReadKey });
 }
 
 if (new URLSearchParams(location.search).has('demo')) demo();

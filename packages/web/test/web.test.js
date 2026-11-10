@@ -139,3 +139,31 @@ test('API web: mede o uso do bucket e recusa envio que estouraria os 10 GB gratu
   assert.match(r.skipped[0].reason, /não cabe/);
   assert.equal((await full.quota.get()).level, 'over'); // 10 GB - 500 B + os 1000 B já enviados
 });
+
+test('API web: gera o código de pareamento com a chave de leitura (nunca a de gravação)', async () => {
+  const { decodePair } = require('../../shared/src/pair');
+  const storage = createMemoryS3();
+  const settings = { endpoint: 'https://s3.us-east-005.backblazeb2.com', region: '', bucket: 'loja', privateBucket: true, publicBaseUrl: '' };
+  let rk = null;
+  const api = createWebApi({ storage, settings, saveSettings: async () => {}, getReadKey: () => rk });
+
+  const semChave = await api.pair.code();
+  assert.equal(semChave.ok, false);
+  assert.match(semChave.error, /chave de leitura/);
+
+  rk = { keyId: 'LEITURA-ID', appKey: 'LEITURA-SEGREDO' };
+  const r = await api.pair.code();
+  assert.equal(r.ok, true);
+  const d = decodePair(r.code);
+  assert.equal(d.baseUrl, 'https://s3.us-east-005.backblazeb2.com/loja');
+  assert.equal(d.keyId, 'LEITURA-ID');
+  assert.equal(d.secretKey, 'LEITURA-SEGREDO');
+  assert.equal(d.pollSeconds, 120);
+  assert.equal((await api.settings.get()).hasReadKey, true);
+
+  // bucket público: o código não leva chave nenhuma
+  settings.privateBucket = false;
+  const pub = decodePair((await api.pair.code()).code);
+  assert.equal(pub.keyId, '');
+  assert.equal(pub.baseUrl, 'https://loja.s3.us-east-005.backblazeb2.com');
+});

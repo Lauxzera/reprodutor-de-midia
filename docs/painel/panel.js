@@ -24,6 +24,7 @@ const state = {
   settingsDraft: null,
   testResult: null,
   quota: null, // só na versão web: uso do armazenamento do B2
+  pair: undefined, // código de pareamento do player: undefined = não carregado, null = carregando, {ok, code|error}
 };
 
 // Barra de uso do armazenamento (versão web). Os limites são os conhecidos do plano gratuito do B2.
@@ -39,6 +40,17 @@ function quotaBar() {
     h('div', { class: 'quota-track' }, h('div', { class: 'quota-fill', style: `width:${pct}%` })),
     h('button', { class: 'btn small', onclick: () => loadQuota(true) }, 'Atualizar'),
   );
+}
+
+async function loadPair() {
+  if (!api.pair || state.pair === null) return;
+  state.pair = null;
+  try {
+    state.pair = await api.pair.code();
+  } catch (e) {
+    state.pair = { ok: false, error: e.message };
+  }
+  render();
 }
 
 async function loadQuota(force) {
@@ -483,11 +495,32 @@ function viewPublish() {
     }
   });
 
+  if (api.pair && state.pair === undefined) loadPair();
+  const pairBlock = !api.pair
+    ? null
+    : h(
+        'div',
+        { class: 'card', style: 'margin-top:18px' },
+        h('h3', {}, 'Parear um player'),
+        state.pair && state.pair.ok
+          ? h(
+              'div',
+              {},
+              h('p', { class: 'muted', style: 'margin-top:0' }, 'Cole este código no player (Ctrl+Shift+M > Configurar conexão) e escolha a tela na lista. Ou instale já pareado: install.ps1 -App player -Pair <código>.'),
+              h('textarea', { class: 'code', rows: '4', readonly: true, style: 'width:100%;box-sizing:border-box' }, state.pair.code),
+              h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn small', onclick: () => navigator.clipboard.writeText(state.pair.code).then(() => toast('Código copiado', 'success')) }, 'Copiar código')),
+              h('p', { class: 'warn', style: 'margin:8px 0 0;font-size:13px' }, 'Trate o código como senha: ele leva a chave de leitura do bucket. Não publique nem envie em grupos.'),
+            )
+          : state.pair
+            ? h('div', {}, h('p', { class: 'warn', style: 'margin-top:0' }, state.pair.error), h('button', { class: 'btn small', onclick: () => setTab('settings') }, 'Abrir Configurações'))
+            : h('p', { class: 'muted', style: 'margin-top:0' }, 'Gerando código…'),
+      );
+
   const configBlock = h(
-    'div',
+    'details',
     { class: 'card', style: 'margin-top:18px' },
-    h('h3', {}, 'Configuração do player'),
-    h('p', { class: 'muted', style: 'margin-top:0' }, 'No PC das TVs, no player, pressione Ctrl+Shift+M, escolha "Configurar conexão" e cole este JSON.'),
+    h('summary', {}, 'Avançado: configuração do player em JSON'),
+    h('p', { class: 'muted', style: 'margin-top:8px' }, 'Alternativa ao código: no player, Ctrl+Shift+M > Configurar conexão > Avançado, e cole este JSON.'),
     h('pre', { class: 'code' }, playerConfigText()),
     (() => {
       // Cada consulta do player ao manifesto conta como uma leitura; o limite gratuito diário do B2 é compartilhado por todos os players.
@@ -513,6 +546,7 @@ function viewPublish() {
       state.publishing || state.publishLog.length ? h('div', { style: 'margin-top:14px;display:flex;flex-direction:column;gap:10px' }, h('div', { class: 'progress' }, h('div', { id: 'pub-bar' })), logEl) : null,
       state.lastPublish ? h('p', { class: 'ok', style: 'margin-bottom:0' }, `Pronto: revisão ${state.lastPublish.revision} · ${state.lastPublish.uploaded} mídia(s) enviada(s), ${state.lastPublish.skipped} já estavam no bucket.`) : null,
     ),
+    pairBlock,
     configBlock,
   );
 }
@@ -590,6 +624,8 @@ function viewSettings() {
   const d = state.settingsDraft;
   const keyId = h('input', { type: 'text', placeholder: state.settings.hasKeys ? '•••• (salvo — preencha só para trocar)' : 'keyID da Application Key', autocomplete: 'off' });
   const appKey = h('input', { type: 'password', placeholder: state.settings.hasKeys ? '•••• (salva)' : 'applicationKey', autocomplete: 'off' });
+  const readKeyId = h('input', { type: 'text', value: state.settings.readKeyId || '', placeholder: 'keyID da chave SOMENTE LEITURA', autocomplete: 'off' });
+  const readAppKey = h('input', { type: 'password', placeholder: state.settings.hasReadKey ? '•••• (salva)' : 'applicationKey da chave somente leitura', autocomplete: 'off' });
   const result = h('span', { class: state.testResult && state.testResult.ok ? 'ok' : 'err' }, state.testResult ? (state.testResult.ok ? 'Conexão OK: gravou e apagou um arquivo de teste.' : `Falhou: ${state.testResult.error}`) : '');
 
   const text = (label, key, placeholder, help) =>
@@ -618,11 +654,21 @@ function viewSettings() {
     h(
       'div',
       { class: 'field' },
-      h('label', {}, h('input', { type: 'checkbox', checked: Boolean(d.privateBucket), onchange: (e) => (d.privateBucket = e.target.checked) }), ' Bucket privado (o player lê com uma chave somente de leitura)'),
+      h('label', {}, h('input', { type: 'checkbox', checked: Boolean(d.privateBucket), onchange: (e) => { d.privateBucket = e.target.checked; render(); } }), ' Bucket privado (o player lê com uma chave somente de leitura)'),
     ),
     text('URL pública do bucket (opcional)', 'publicBaseUrl', 'https://<bucket>.s3.<região>.backblazeb2.com', 'Se vazio, usa https://<bucket>.<host do endpoint>. O bucket precisa estar com leitura pública.'),
     h('div', { class: 'field' }, h('label', {}, 'Key ID'), keyId),
     h('div', { class: 'field' }, h('label', {}, 'Application Key'), appKey, h('div', { class: 'muted', style: 'font-size:12px' }, 'Fica criptografada neste computador e nunca vai para o player. Use uma chave com acesso só a este bucket.')),
+    d.privateBucket
+      ? h(
+          'div',
+          { class: 'field' },
+          h('label', {}, 'Chave de leitura do player (opcional aqui, necessária para gerar o código de pareamento)'),
+          readKeyId,
+          readAppKey,
+          h('div', { class: 'muted', style: 'font-size:12px' }, 'Crie no B2 uma segunda chave, restrita ao bucket, com acesso Read Only. Ela vai dentro do código de pareamento; a chave de gravação nunca.'),
+        )
+      : null,
   );
 
   const folder = h(
@@ -644,8 +690,10 @@ function viewSettings() {
 
   const save = async () => {
     const keys = keyId.value.trim() && appKey.value ? { keyId: keyId.value.trim(), appKey: appKey.value } : null;
+    const readKeys = readKeyId.value.trim() && readAppKey.value ? { keyId: readKeyId.value.trim(), appKey: readAppKey.value } : null;
     try {
-      state.settings = await api.settings.save({ type: d.type, endpoint: d.endpoint, region: d.region, bucket: d.bucket, publicBaseUrl: d.publicBaseUrl, privateBucket: Boolean(d.privateBucket), folderPath: d.folderPath }, keys);
+      state.settings = await api.settings.save({ type: d.type, endpoint: d.endpoint, region: d.region, bucket: d.bucket, publicBaseUrl: d.publicBaseUrl, privateBucket: Boolean(d.privateBucket), folderPath: d.folderPath }, keys, readKeys);
+      state.pair = undefined; // regera o código de pareamento com os dados novos
       state.settingsDraft = { ...state.settings };
       toast('Configurações salvas', 'success');
       render();

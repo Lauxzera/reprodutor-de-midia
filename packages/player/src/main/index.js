@@ -4,7 +4,8 @@ const { app, BrowserWindow, ipcMain, powerSaveBlocker, shell } = require('electr
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
-const { nextActiveItem, SLUG_RE } = require('@reprodutor/shared');
+const { nextActiveItem, SLUG_RE, decodePair } = require('@reprodutor/shared');
+const { listScreens } = require('./screens');
 const { SyncEngine } = require('./sync');
 const { loadConfig } = require('./config');
 const { createLogger, readLogTail } = require('./logger');
@@ -39,6 +40,8 @@ function main() {
   engine.init();
 
   let win = null;
+  let screenChoices = []; // telas publicadas quando há mais de uma e falta escolher
+  let pendingPair = null; // credenciais de um código de pareamento colado e ainda não salvas (nunca vão ao renderer)
   let quitting = false;
   let lastStatusState = null;
 
@@ -80,6 +83,8 @@ function main() {
 
   const snapshot = () => ({
     configured: config.configured,
+    needsScreen: Boolean(config.baseUrl && !config.screenId),
+    screenChoices,
     configFile: config.file,
     dataDir,
     screenId: config.screenId,
@@ -162,13 +167,48 @@ function main() {
     }
   });
 
+  const credsOf = (c) => ({ baseUrl: c.baseUrl, keyId: c.keyId, secretKey: c.secretKey, region: c.region });
+
+  // Cola um código de pareamento: valida, guarda as credenciais só no processo principal e devolve as telas publicadas.
+  ipcMain.handle('maint:apply-pair', async (_e, token, code) => {
+    if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
+    let p;
+    try {
+      p = decodePair(code);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+    pendingPair = p;
+    log('Manutenção: código de pareamento aplicado');
+    const out = { ok: true, baseUrl: p.baseUrl, pollSeconds: p.pollSeconds, keyId: p.keyId, screens: [], screensError: '' };
+    if (p.keyId) {
+      try {
+        out.screens = await listScreens(credsOf(p));
+      } catch (e) {
+        out.screensError = e.message;
+      }
+    }
+    return out;
+  });
+
+  // Atualiza a lista de telas (com as credenciais pendentes ou as já salvas).
+  ipcMain.handle('maint:list-screens', async (_e, token) => {
+    if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
+    try {
+      return { ok: true, screens: await listScreens(credsOf(pendingPair || config)) };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   ipcMain.handle('maint:get-config', (_e, token) => {
     if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
     return { ok: true, baseUrl: config.baseUrl, screenId: config.screenId, pollSeconds: config.pollSeconds, keyId: config.keyId, hasSecret: Boolean(config.secretKey) };
   });
   ipcMain.handle('maint:save-config', (_e, token, input) => {
     if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
-    const baseUrl = String((input && input.baseUrl) || '').trim().replace(/\/+$/, '');
+    const usePair = Boolean(input && input.usePair && pendingPair);
+    const baseUrl = String((usePair ? pendingPair.baseUrl : input && input.baseUrl) || '').trim().replace(/\/+$/, '');
     const screenId = String((input && input.screenId) || '').trim();
     const pollSeconds = Number(input && input.pollSeconds);
     if (!/^https?:\/\/[^\s/]+/i.test(baseUrl)) return { ok: false, error: 'URL do bucket inválida (deve começar com http:// ou https://)' };
@@ -182,11 +222,20 @@ function main() {
       /* config novo */
     }
     const next = { ...current, baseUrl, screenId, pollSeconds };
-    if (input && typeof input.keyId === 'string') next.keyId = input.keyId.trim();
-    // Segredo em branco = mantém o atual (a tela não o exibe).
-    if (input && typeof input.secretKey === 'string' && input.secretKey.trim()) next.secretKey = input.secretKey.trim();
-    if (input && typeof input.region === 'string') next.region = input.region.trim();
+    if (usePair) {
+      // Credenciais do código de pareamento (ficaram só no processo principal).
+      next.keyId = pendingPair.keyId;
+      next.region = pendingPair.region;
+      if (pendingPair.secretKey) next.secretKey = pendingPair.secretKey;
+      else delete next.secretKey;
+    } else {
+      if (input && typeof input.keyId === 'string') next.keyId = input.keyId.trim();
+      // Segredo em branco = mantém o atual (a tela não o exibe).
+      if (input && typeof input.secretKey === 'string' && input.secretKey.trim()) next.secretKey = input.secretKey.trim();
+      if (input && typeof input.region === 'string') next.region = input.region.trim();
+    }
     if (!next.keyId) delete next.secretKey;
+    pendingPair = null;
     fs.writeFileSync(config.file, JSON.stringify(next, null, 2));
     log(`Configuração salva pela manutenção (tela "${screenId}")`);
     setTimeout(() => restart('configuração alterada'), 300);
@@ -287,6 +336,32 @@ function main() {
     }
   }
 
+  // Pareado por código/instalador, mas sem tela definida: se só existe uma tela publicada, usa ela;
+  // se houver várias, pede para escolher; se nenhuma, tenta de novo a cada 30 s até o painel publicar.
+  function autoPickScreen() {
+    const attempt = async () => {
+      if (quitting) return;
+      try {
+        const ids = await listScreens(credsOf(config));
+        if (ids.length === 1) {
+          const cur = JSON.parse(fs.readFileSync(config.file, 'utf8'));
+          fs.writeFileSync(config.file, JSON.stringify({ ...cur, screenId: ids[0] }, null, 2));
+          log(`Tela definida automaticamente: "${ids[0]}" (única publicada)`);
+          restart('tela definida automaticamente');
+          return;
+        }
+        screenChoices = ids;
+        notify();
+        if (ids.length > 1) log(`Há ${ids.length} telas publicadas (${ids.join(', ')}); escolha em Ctrl+Shift+M > Configurar conexão`);
+        else log('Nenhuma tela publicada ainda; tentando de novo em 30 s');
+      } catch (e) {
+        log(`Não foi possível listar as telas: ${e.message}`);
+      }
+      setTimeout(attempt, 30000);
+    };
+    attempt();
+  }
+
   app.whenReady().then(() => {
     powerSaveBlocker.start('prevent-display-sleep');
     if (app.isPackaged && config.autoStart) app.setLoginItemSettings({ openAtLogin: true });
@@ -300,6 +375,7 @@ function main() {
       }, 15000);
     }
     if (config.configured) engine.start();
+    else if (config.baseUrl && config.keyId && config.secretKey) autoPickScreen();
     else log('Player sem configuração: pressione Ctrl+Shift+M na tela do player para configurar a conexão.');
     log(`Player iniciado (tela "${config.screenId || '—'}", dados em ${dataDir})`);
   });
