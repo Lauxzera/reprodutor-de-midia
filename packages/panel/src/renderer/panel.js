@@ -185,7 +185,7 @@ function viewLibrary() {
     'div',
     {},
     h('h2', {}, 'Biblioteca'),
-    h('p', { class: 'sub' }, 'Arquivos disponíveis para as playlists. Cada arquivo é copiado para o painel.'),
+    h('p', { class: 'sub' }, api.web ? 'Arquivos disponíveis para as playlists. Cada arquivo é enviado ao seu bucket do B2.' : 'Arquivos disponíveis para as playlists. Cada arquivo é copiado para o painel.'),
     zone,
     state.library.length ? grid : h('p', { class: 'muted' }, 'Nenhuma mídia ainda.'),
   );
@@ -627,9 +627,9 @@ function viewSettings() {
       'div',
       { class: 'field' },
       h('label', {}, 'Armazenamento'),
-      h('select', { onchange: (e) => { d.type = e.target.value; render(); } }, h('option', { value: 'b2', selected: d.type === 'b2' }, 'Backblaze B2'), h('option', { value: 'folder', selected: d.type === 'folder' }, 'Pasta local (teste)')),
+      h('select', { onchange: (e) => { d.type = e.target.value; render(); } }, h('option', { value: 'b2', selected: d.type === 'b2' }, 'Backblaze B2'), api.web ? null : h('option', { value: 'folder', selected: d.type === 'folder' }, 'Pasta local (teste)')),
     ),
-    d.type === 'b2' ? b2 : folder,
+    d.type === 'b2' || api.web ? b2 : folder,
     h(
       'div',
       { class: 'row wrap' },
@@ -648,6 +648,35 @@ function viewSettings() {
       ),
       result,
     ),
+    api.web
+      ? h(
+          'div',
+          { class: 'card', style: 'margin-top:22px' },
+          h('h3', {}, 'Este navegador'),
+          h('p', { class: 'muted', style: 'margin-top:0' }, 'As chaves ficam criptografadas aqui. Biblioteca e playlists ficam no seu bucket (pasta admin/), então valem para qualquer navegador.'),
+          h(
+            'div',
+            { class: 'row wrap' },
+            h('button', { class: 'btn', onclick: () => api.logout() }, 'Sair (bloquear)'),
+            h(
+              'button',
+              {
+                class: 'btn',
+                onclick: async () => {
+                  if (!confirm('Apagar do bucket as mídias que não estão na biblioteca nem em nenhuma tela publicada?')) return;
+                  try {
+                    const r = await api.cleanOrphans();
+                    toast(r.removed ? `${r.removed} arquivo(s) órfão(s) apagado(s) (${formatSize(r.bytes)})` : 'Nenhuma mídia órfã', 'success');
+                  } catch (e) {
+                    toast(e.message, 'error');
+                  }
+                },
+              },
+              'Limpar mídias órfãs do bucket',
+            ),
+          ),
+        )
+      : null,
   );
 }
 
@@ -693,6 +722,9 @@ api.publish.onProgress((p) => {
     log.scrollTop = log.scrollHeight;
   }
 });
+
+// Versão web: andamento do cálculo e do envio dos arquivos.
+if (api.library.onProgress) api.library.onProgress((m) => toast(m, 'info'));
 
 // Soltar arquivos na janela adiciona à biblioteca (e impede o Electron de "abrir" o arquivo).
 window.addEventListener('dragover', (e) => {

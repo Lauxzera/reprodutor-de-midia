@@ -1,0 +1,9 @@
+{
+  "name": "@reprodutor/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Painel de gestão web (hospedado como site estático)",
+  "scripts": {
+    "build": "node ../../tools/build-web.js"
+  }
+}

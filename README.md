@@ -4,6 +4,10 @@ Sinalização digital com **gerenciamento remoto** e **reprodução offline**. O
 
 Estado atual: fases 1 a 7 (player, sincronização, painel, agendamento, robustez, instaladores e testes de falha). Falta validar no PC e nas TVs da loja e com o B2 real (roteiro em [docs/TESTES.md](docs/TESTES.md)); depois, o Supabase. Para instalar nos PCs, veja o [guia de instalação](docs/INSTALACAO.md).
 
+## Painel web
+
+Gerencie de qualquer lugar, sem instalar nada: **https://lauxzera.github.io/reprodutor-de-midia/painel/** (guia em [docs/PAINEL-WEB.md](docs/PAINEL-WEB.md)). Os arquivos vão do navegador direto para o seu bucket do B2.
+
 ## Instalar por comando (cmd)
 
 Instala a versão mais recente do [Release](https://github.com/Lauxzera/reprodutor-de-midia/releases/latest) (por usuário, sem administrador, com conferência SHA-256). No **PC das TVs**:

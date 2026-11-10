@@ -17,7 +17,10 @@
     "dist:panel": "npm run dist -w @reprodutor/panel",
     "dist": "npm run dist:player && npm run dist:panel",
     "pack:player": "npm run pack -w @reprodutor/player",
-    "pack:panel": "npm run pack -w @reprodutor/panel"
+    "pack:panel": "npm run pack -w @reprodutor/panel",
+    "build:web": "node tools/build-web.js",
+    "b2-cors": "node tools/b2-cors.js",
+    "web-check": "node tools/web-check.js"
   },
   "devDependencies": {
     "electron": "^45.2.3",
