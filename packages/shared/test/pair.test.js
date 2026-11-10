@@ -4,16 +4,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { encodePair, decodePair, isPairCode, pairChecksum } = require('../src/pair');
 
-const base = { endpoint: 'https://s3.us-east-005.backblazeb2.com', bucket: 'loja-sinalizacao', keyId: '005abc000000002', secretKey: 'K005segredo/com+simbolos==', pollSeconds: 120 };
+const base = { endpoint: 'https://s3.us-east-005.backblazeb2.com', bucket: 'bucket-exemplo', keyId: 'id-de-exemplo-0002', secretKey: 'Ksegredo-de-exemplo/com+simbolos==', pollSeconds: 120 };
 
 test('código de pareamento: ida e volta (bucket privado)', () => {
   const code = encodePair(base);
   assert.match(code, /^RM1-[A-Za-z0-9_-]+\.[0-9a-f]{8}$/);
   assert.equal(isPairCode(` ${code}\n`), true);
   assert.deepEqual(decodePair(code), {
-    baseUrl: 'https://s3.us-east-005.backblazeb2.com/loja-sinalizacao',
-    keyId: '005abc000000002',
-    secretKey: 'K005segredo/com+simbolos==',
+    baseUrl: 'https://s3.us-east-005.backblazeb2.com/bucket-exemplo',
+    keyId: 'id-de-exemplo-0002',
+    secretKey: 'Ksegredo-de-exemplo/com+simbolos==',
     region: 'us-east-005',
     pollSeconds: 120,
   });

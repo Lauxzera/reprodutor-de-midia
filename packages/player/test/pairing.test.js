@@ -8,13 +8,13 @@ const XML = `<?xml version="1.0"?><ListBucketResult><Contents><Key>screens/loja.
 <Contents><Key>screens/vitrine-2.json</Key><Size>10</Size></Contents><Contents><Key>screens/Maiuscula.json</Key></Contents>
 <Contents><Key>screens/pasta/x.json</Key></Contents></ListBucketResult>`;
 
-const base = { baseUrl: 'https://s3.us-east-005.backblazeb2.com/loja-sinalizacao', keyId: 'K', secretKey: 'S', region: 'us-east-005' };
+const base = { baseUrl: 'https://s3.us-east-005.backblazeb2.com/bucket-exemplo', keyId: 'K', secretKey: 'S', region: 'us-east-005' };
 
 test('lista as telas do bucket (assinando o pedido) e ignora nomes inválidos', async () => {
   let seen;
   const fetch = async (url, init) => ((seen = { url, init }), { ok: true, status: 200, text: async () => XML });
   assert.deepEqual(await listScreens({ ...base, fetch }), ['loja', 'vitrine-2']);
-  assert.match(seen.url, /\/loja-sinalizacao\?list-type=2&prefix=screens%2F$/);
+  assert.match(seen.url, /\/bucket-exemplo\?list-type=2&prefix=screens%2F$/);
   assert.match(seen.init.headers.authorization, /^AWS4-HMAC-SHA256 Credential=K\//);
 });
 
