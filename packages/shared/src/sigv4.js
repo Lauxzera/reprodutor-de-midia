@@ -13,7 +13,8 @@ function enc(s) {
 
 /** Região a partir de um endpoint do B2 (s3.us-east-005.backblazeb2.com -> us-east-005). */
 function regionFromHost(host) {
-  const m = /^s3\.([a-z0-9-]+)\.backblazeb2\.com$/i.exec(host);
+  // aceita s3.<região>.backblazeb2.com e <bucket>.s3.<região>.backblazeb2.com (URL no estilo virtual-hosted)
+  const m = /(?:^|\.)s3\.([a-z0-9-]+)\.backblazeb2\.com$/i.exec(host);
   return m ? m[1] : 'us-east-1';
 }
 

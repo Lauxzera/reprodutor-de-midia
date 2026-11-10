@@ -26,3 +26,9 @@ test('signedFetch preserva cabeçalhos do chamador (Range, If-None-Match) e acre
   assert.equal(seen.init.headers.range, 'bytes=5-');
   assert.ok(seen.init.headers.authorization.startsWith('AWS4-HMAC-SHA256'));
 });
+
+test('região também sai de URL no estilo bucket.s3.<região>.backblazeb2.com', () => {
+  assert.equal(regionFromHost('meu-bucket.s3.us-east-005.backblazeb2.com'), 'us-east-005');
+  assert.equal(regionFromHost('s3.eu-central-003.backblazeb2.com'), 'eu-central-003');
+  assert.equal(regionFromHost('exemplo.com'), 'us-east-1');
+});
