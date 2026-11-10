@@ -236,23 +236,15 @@
     }
   });
 
-  // Botão no canto superior direito: só aparece quando o mouse chega perto do canto (a TV fica limpa).
+  // Botão ⚙ no canto superior direito: sempre presente, com opacidade bem baixa (10%) para não atrapalhar o vídeo; sobe a 100% ao passar o mouse.
   const corner = document.getElementById('corner');
   let cursorTimer = null;
   window.addEventListener('mousemove', (e) => {
     document.body.classList.add('show-cursor');
-    const nearCorner = e.clientX > window.innerWidth - 140 && e.clientY < 110;
-    corner.classList.toggle('hidden', !nearCorner || isOpen());
     clearTimeout(cursorTimer);
-    cursorTimer = setTimeout(() => {
-      document.body.classList.remove('show-cursor');
-      corner.classList.add('hidden');
-    }, 3000);
+    cursorTimer = setTimeout(() => document.body.classList.remove('show-cursor'), 3000);
   });
-  corner.addEventListener('click', () => {
-    corner.classList.add('hidden');
-    open();
-  });
+  corner.addEventListener('click', () => open());
 
   window.__openMaint = open; // usado nos testes automatizados
 })();

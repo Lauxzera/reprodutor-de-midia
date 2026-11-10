@@ -74,7 +74,7 @@ Passo a passo e verificação com as suas credenciais: [docs/B2.md](docs/B2.md) 
 |---|---|
 | `Ctrl+Shift+D` | mostra/oculta o painel de status (revisão, sincronização, itens no disco) |
 | `Ctrl+Shift+M` | menu de manutenção (pede senha): sincronizar agora, configurar conexão, minimizar, configurações do Windows, abrir pasta de dados, reiniciar, sair, ver o log |
-| botão ⚙ no canto superior direito | aparece quando o mouse chega ao canto (a TV fica limpa) e abre o mesmo menu de manutenção |
+| botão ⚙ no canto superior direito | sempre presente, com 10% de opacidade (quase invisível sobre o vídeo); fica nítido ao passar o mouse; abre o mesmo menu de manutenção |
 | `Ctrl+Shift+Q` | encerra o player, **só em modo janela** (`PLAYER_WINDOWED=1`, para desenvolvimento) |
 
 **Senha de manutenção:** no primeiro `Ctrl+Shift+M` o player pede para definir a senha; faça isso na instalação. Ela fica como hash em `security.json` na pasta de dados (apagar esse arquivo no PC redefine a senha). Após 5 erros, bloqueia por 30 s. Em tela cheia, Alt+F4 não fecha o player. **Minimizar** (menu de manutenção) esconde a janela para você usar o Windows; ela volta sozinha à tela cheia em 10 min, ou antes se você clicar no ícone na barra de tarefas. *Configurações do Windows* minimiza e abre o aplicativo Configurações.

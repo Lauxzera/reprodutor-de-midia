@@ -58,17 +58,20 @@ body.maint-open, body.show-cursor { cursor: default; }
   top: 12px;
   right: 12px;
   z-index: 15;
-  width: 40px;
-  height: 40px;
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  width: 36px;
+  height: 36px;
+  border: 0;
   border-radius: 8px;
-  background: rgba(20, 22, 26, 0.72);
+  background: rgba(20, 22, 26, 0.5);
   color: #fff;
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
+  opacity: 0.1; /* quase invisível sobre o vídeo; sempre clicável */
+  transition: opacity 0.2s;
 }
-#corner:hover { background: rgba(76, 141, 255, 0.9); }
+#corner:hover, #corner:focus-visible { opacity: 1; background: rgba(76, 141, 255, 0.9); }
+body.maint-open #corner { display: none; }
 
 #maint {
   position: fixed;
