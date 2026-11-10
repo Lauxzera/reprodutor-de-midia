@@ -167,3 +167,33 @@ test('API web: gera o código de pareamento com a chave de leitura (nunca a de g
   assert.equal(pub.keyId, '');
   assert.equal(pub.baseUrl, 'https://loja.s3.us-east-005.backblazeb2.com');
 });
+
+test('sonda de codec: acha hvc1/hev1/avc1 mesmo na fronteira entre fatias de 4 MB', async () => {
+  const { hashAndProbe } = require('../src/sha256');
+  const SLICE = 4 * 1024 * 1024;
+  const mk = (tag, at) => {
+    const b = Buffer.alloc(SLICE * 2 + 100, 0x20);
+    Buffer.from(tag).copy(b, at);
+    return b;
+  };
+  const hevc = await hashAndProbe(new Blob([mk('hvc1', SLICE - 2)])); // a marca atravessa a fronteira
+  assert.deepEqual([hevc.hevc, hevc.h264], [true, false]);
+  assert.equal(hevc.sha256, nodeSha(mk('hvc1', SLICE - 2)));
+  const avc = await hashAndProbe(new Blob([mk('avc1', 10)]));
+  assert.deepEqual([avc.hevc, avc.h264], [false, true]);
+  const none = await hashAndProbe(new Blob([crypto.randomBytes(1000)]));
+  assert.deepEqual([none.hevc, none.h264], [false, false]);
+});
+
+test('API web: recusa vídeo só HEVC (iPhone) e aceita H.264', async () => {
+  const storage = createMemoryS3();
+  const settings = { endpoint: 'https://s3.us-east-005.backblazeb2.com', region: '', bucket: 'b', privateBucket: true, publicBaseUrl: '' };
+  const api = createWebApi({ storage, settings, saveSettings: async () => {} });
+  const fake = (tag) => new File([Buffer.concat([Buffer.from('....ftypqt  ....moov'), Buffer.from(tag), crypto.randomBytes(500)])], `${tag}.mov`);
+
+  const r = await api.library.addPaths([fake('hvc1'), fake('avc1')]);
+  assert.equal(r.added.length, 1);
+  assert.equal(r.skipped.length, 1);
+  assert.match(r.skipped[0].reason, /HEVC.*H\.264/);
+  assert.equal([...storage.objects.keys()].filter((k) => k.startsWith('media/')).length, 1, 'o HEVC não foi enviado ao bucket');
+});

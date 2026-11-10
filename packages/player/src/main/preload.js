@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('playerApi', {
   next: (lastId) => invoke('player:next', lastId),
   onChanged: (cb) => ipcRenderer.on('player:changed', (_e, state) => cb(state)),
   heartbeat: () => ipcRenderer.send('player:heartbeat'),
+  log: (message) => ipcRenderer.send('player:log', String(message).slice(0, 300)),
   playing: (info) => ipcRenderer.send('player:playing', info),
   maint: {
     status: () => invoke('maint:status'),

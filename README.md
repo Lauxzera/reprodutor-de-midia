@@ -114,6 +114,8 @@ release/          instaladores gerados (não versionar)
 
 ## Limitações conhecidas
 
+- **Vídeos em HEVC (H.265), padrão do iPhone, não tocam no Player:** o som anda, mas não há imagem. O painel web recusa esses arquivos ao enviar e avisa; o Player pula o item e registra no `player.log`. Converta para **H.264 em MP4** antes (HandBrake, ou `ffmpeg -i entrada.mov -c:v libx264 -crf 23 -preset medium -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart saida.mp4`). Vídeos verticais aparecem com faixas pretas numa TV na horizontal.
+
 - O fluxo completo foi verificado no B2 real com bucket privado (`npm run b2-check`: ETag/304, Range, 25 MB, sincronização); a chave de leitura separada e o uso com vários players ainda não foram exercitados. Vídeo MP4 foi testado no player. Horas de operação e a troca real de rede ficam para o roteiro em [docs/TESTES.md](docs/TESTES.md).
 - Mídias órfãs no bucket (removidas da playlist) não são apagadas; a limpeza do bucket ainda não existe.
 - Os instaladores foram instalados, executados e desinstalados no PC de desenvolvimento (ver [docs/TESTES.md](docs/TESTES.md)).

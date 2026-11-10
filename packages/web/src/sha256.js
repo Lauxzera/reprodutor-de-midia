@@ -103,4 +103,34 @@ async function sha256Blob(blob, onProgress) {
   return hash.hex();
 }
 
-module.exports = { Sha256, sha256Blob };
+const FOURCC = { hvc1: 'hevc', hev1: 'hevc', avc1: 'h264', avc3: 'h264' };
+
+/**
+ * Calcula o SHA-256 e, no mesmo passe, procura nos bytes do arquivo as marcas de codec de vídeo
+ * (hvc1/hev1 = HEVC/H.265, avc1/avc3 = H.264). Devolve { sha256, hevc, h264 }.
+ */
+async function hashAndProbe(blob, onProgress) {
+  const hash = new Sha256();
+  const seen = { hevc: false, h264: false };
+  let tail = new Uint8Array(0);
+  for (let pos = 0; pos < blob.size; pos += SLICE) {
+    const chunk = new Uint8Array(await blob.slice(pos, Math.min(blob.size, pos + SLICE)).arrayBuffer());
+    hash.update(chunk);
+    if (!(seen.hevc && seen.h264)) {
+      const buf = new Uint8Array(tail.length + chunk.length);
+      buf.set(tail, 0);
+      buf.set(chunk, tail.length);
+      for (let i = 0; i + 3 < buf.length; i++) {
+        const b = buf[i];
+        if (b !== 0x68 && b !== 0x61) continue; // só 'h' ou 'a' podem começar as marcas
+        const tag = String.fromCharCode(b, buf[i + 1], buf[i + 2], buf[i + 3]);
+        if (FOURCC[tag]) seen[FOURCC[tag]] = true;
+      }
+      tail = buf.slice(Math.max(0, buf.length - 3));
+    }
+    if (onProgress) onProgress(Math.min(1, (pos + chunk.length) / blob.size));
+  }
+  return { sha256: hash.hex(), hevc: seen.hevc, h264: seen.h264 };
+}
+
+module.exports = { Sha256, sha256Blob, hashAndProbe };

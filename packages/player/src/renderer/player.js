@@ -9,6 +9,8 @@ const debugEl = document.getElementById('debug');
 let state = null;
 let currentId = null;
 let currentEl = null;
+let playProblem = null; // último item que não pôde ser exibido (aparece na tela ociosa e no Ctrl+Shift+D)
+const reported = new Set(); // itens já registrados no log (um aviso por item)
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const withTimeout = (promise, ms, what) =>
@@ -29,6 +31,7 @@ function renderDebug() {
     `última sync: ${st.lastSyncAt || '—'}`,
     st.quota ? `leituras do B2 hoje: ${st.quota.used}/${st.quota.limit} (${Math.round(st.quota.ratio * 100)}%)${st.quota.level === 'ok' ? '' : st.quota.level === 'over' ? ' — LIMITE GRATUITO ATINGIDO' : ' — perto do limite gratuito'}` : null,
     `tocando: ${currentId || '—'}`,
+    playProblem ? `problema: ${playProblem}` : null,
   ]
     .filter(Boolean)
     .join('\n');
@@ -37,7 +40,9 @@ function renderDebug() {
 function showIdle(show) {
   idleEl.classList.toggle('hidden', !show);
   if (!show || !state) return;
-  idleDetail.textContent = state.needsScreen
+  idleDetail.textContent = playProblem
+    ? playProblem
+    : state.needsScreen
     ? state.screenChoices && state.screenChoices.length > 1
       ? `Há ${state.screenChoices.length} telas publicadas. Pressione Ctrl+Shift+M > Configurar conexão para escolher a deste player.`
       : 'Pareado. Aguardando uma tela ser publicada pelo painel…'
@@ -97,7 +102,7 @@ function loadVideo(item) {
   v.src = item.src;
   return withTimeout(
     new Promise((resolve, reject) => {
-      v.addEventListener('canplay', () => resolve(v), { once: true });
+      v.addEventListener('canplay', () => (v.videoWidth === 0 ? reject(new Error('formato de vídeo sem imagem (provavelmente HEVC/H.265); converta para H.264 em MP4')) : resolve(v)), { once: true });
       v.addEventListener('error', () => reject(new Error('Vídeo não pôde ser carregado')), { once: true });
     }),
     20000,
@@ -145,10 +150,12 @@ async function play(item) {
 }
 
 async function loop() {
+  // `cursor` avança mesmo quando um item falha; sem isso o player repetiria o item com defeito e nunca chegaria ao próximo.
+  let cursor = null;
   for (;;) {
     let item = null;
     try {
-      item = await api.next(currentId);
+      item = await api.next(cursor);
     } catch (e) {
       console.warn('next falhou', e);
     }
@@ -162,10 +169,18 @@ async function loop() {
     }
 
     showIdle(false);
+    cursor = item.id;
     try {
       await play(item);
+      playProblem = null;
     } catch (e) {
       console.warn(`Pulando "${item.name || item.id}": ${e.message}`);
+      if (!reported.has(item.id)) {
+        reported.add(item.id);
+        api.log(`Item "${item.name || item.id}" não pôde ser exibido e foi pulado: ${e.message}`);
+      }
+      playProblem = `"${item.name || item.id}" não pôde ser exibido: ${e.message}`;
+      if (!currentEl) showIdle(true);
       await sleep(1000);
     }
   }

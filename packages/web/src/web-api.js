@@ -6,7 +6,7 @@
 
 const { mediaTypeFromExt, screenKey, mediaKey } = require('@reprodutor/shared');
 const { publishScreen } = require('../../panel/src/main/publish');
-const { sha256Blob } = require('./sha256');
+const { hashAndProbe } = require('./sha256');
 const { assessStorage, fmtBytes } = require('../../shared/src/quota');
 const { encodePair } = require('../../shared/src/pair');
 
@@ -99,7 +99,12 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getR
       }
       try {
         say(`${tag}: calculando assinatura…`);
-        const sha256 = await sha256Blob(file, (f) => say(`${tag}: lendo ${Math.round(f * 100)}%`));
+        const probe = await hashAndProbe(file, (f) => say(`${tag}: lendo ${Math.round(f * 100)}%`));
+        const sha256 = probe.sha256;
+        if (type === 'video' && probe.hevc && !probe.h264) {
+          skipped.push({ name, reason: 'vídeo em HEVC (H.265, comum em iPhone): o player não consegue exibir a imagem. Converta para H.264 em MP4 (HandBrake ou ffmpeg) e envie de novo' });
+          continue;
+        }
         if (entries.some((e) => e.sha256 === sha256)) {
           skipped.push({ name, reason: 'já está na biblioteca' });
           continue;

@@ -113,6 +113,7 @@ function main() {
     return item ? toPlayable(item) : null;
   });
   ipcMain.on('player:heartbeat', () => watchdog.heartbeat());
+  ipcMain.on('player:log', (_e, message) => log(`Player: ${message}`));
   ipcMain.on('player:playing', (_e, info) => {
     if (info && typeof info === 'object') watchdog.itemStarted({ id: typeof info.id === 'string' ? info.id : null, expectedMs: Number(info.expectedMs) });
   });
