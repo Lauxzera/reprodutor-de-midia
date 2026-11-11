@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('playerApi', {
   maint: {
     status: () => invoke('maint:status'),
     setPassword: (password) => invoke('maint:set-password', password),
+    session: () => invoke('maint:session'),
     auth: (password) => invoke('maint:auth', password),
     info: (token) => invoke('maint:info', token),
     action: (token, action) => invoke('maint:action', token, action),

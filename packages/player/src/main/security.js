@@ -10,7 +10,7 @@ const path = require('node:path');
  * Após 5 erros seguidos, bloqueia novas tentativas por 30 s.
  */
 class Security {
-  constructor(dir, { now = Date.now, maxFailures = 5, lockMs = 30000, tokenMs = 2 * 60 * 1000 } = {}) {
+  constructor(dir, { now = Date.now, maxFailures = 5, lockMs = 30000, tokenMs = 12 * 60 * 60 * 1000 } = {}) {
     this.file = path.join(dir, 'security.json');
     this.now = now;
     this.maxFailures = maxFailures;
@@ -67,7 +67,14 @@ class Security {
     return { ok: false, error: 'Senha incorreta', retryAfterMs: Math.max(0, this.lockedUntil - t) };
   }
 
-  /** Token de sessão (2 min, renovado a cada uso) emitido após senha correta. */
+  /** Sessão sem senha (o painel do player é aberto direto, sem login). */
+  issueToken() {
+    const token = crypto.randomBytes(24).toString('hex');
+    this.tokens.set(token, this.now() + this.tokenMs);
+    return token;
+  }
+
+  /** Token de sessão (renovado a cada uso). */
   checkToken(token) {
     const exp = this.tokens.get(token);
     const t = this.now();

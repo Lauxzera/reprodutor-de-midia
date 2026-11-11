@@ -24,7 +24,7 @@ Para publicar uma versão nova: `powershell -ExecutionPolicy Bypass -File tools\
 
 A partir da versão 0.1.4, o Player e o Painel de mesa verificam sozinhos se há um Release novo no GitHub (ao abrir e a cada 6 h):
 
-- **Player:** o botão ⚙ do canto inferior direito ganha um pontinho laranja e fica um pouco mais visível. Clique para abrir o painel e use **Atualizar para vX** (pede a senha de manutenção; a barra mostra o download). O player baixa o instalador, confere o SHA-256 publicado no Release, fecha, instala e **reabre sozinho** (cerca de um minuto; a TV fica sem imagem nesse tempo). *Verificar atualizações* força a consulta.
+- **Player:** o botão ⚙ do canto inferior direito ganha um pontinho laranja e fica um pouco mais visível. Clique para abrir o painel e use **Atualizar para vX** (a barra mostra o download). O player baixa o instalador, confere o SHA-256 publicado no Release, fecha, instala e **reabre sozinho** (cerca de um minuto; a TV fica sem imagem nesse tempo). *Verificar atualizações* força a consulta.
 - **Painel de mesa:** *Configurações* > **Atualizações**. O painel web já está sempre na versão mais recente.
 - Sem internet, a verificação falha em silêncio e tenta de novo depois. Para desligar no Player: `"updates": false` no `config.json`.
 - O instalador só é executado se o hash bater com o `SHA256SUMS.txt` do mesmo Release. Os instaladores não são assinados digitalmente, então a garantia é de integridade, não de autoria.
@@ -76,18 +76,18 @@ Passo a passo e verificação com as suas credenciais: [docs/B2.md](docs/B2.md) 
 1. Crie uma conta no B2, um **bucket privado** (sem cartão; o público exige cartão ou US$ 1) e duas **Application Keys** restritas a ele: leitura e gravação (só no painel) e **somente leitura** (para o player, que assina as leituras com SigV4).
 2. **Painel** (`npm run panel`): em *Configurações*, informe endpoint S3, bucket e chaves e use *Salvar e testar conexão*.
 3. Em *Biblioteca* adicione arquivos, monte a *Playlist* (arraste para ordenar, defina duração e *Agenda* por item) e clique em *Publicar*.
-4. **Player** (PC das TVs): pressione `Ctrl+Shift+M`, defina a senha, escolha *Configurar conexão*, cole o **código de pareamento** da aba *Publicar* e escolha a tela na lista (ele grava o `config.json` e reinicia). Antes, informe a chave de leitura do player em *Configurações* do painel. A pasta de dados é `%APPDATA%\Reprodutor Player\data` no app instalado; `PLAYER_DATA_DIR` escolhe outra.
+4. **Player** (PC das TVs): pressione `Ctrl+Shift+M`, escolha *Configurar conexão*, cole o **código de pareamento** da aba *Publicar* e escolha a tela na lista (ele grava o `config.json` e reinicia). Antes, informe a chave de leitura do player em *Configurações* do painel. A pasta de dados é `%APPDATA%\Reprodutor Player\data` no app instalado; `PLAYER_DATA_DIR` escolhe outra.
 
 ### Atalhos do player
 
 | Atalho | Ação |
 |---|---|
 | `Ctrl+Shift+D` | mostra/oculta o painel de status (revisão, sincronização, itens no disco) |
-| `Ctrl+Shift+M` | painel inicial (a senha só é pedida ao mexer em algo): sincronizar agora, configurar conexão, minimizar, configurações do Windows, abrir pasta de dados, reiniciar, sair, ver o log |
+| `Ctrl+Shift+M` | painel inicial (sem senha): sincronizar agora, configurar conexão, minimizar, configurações do Windows, abrir pasta de dados, reiniciar, sair, ver o log |
 | botão ⚙ no canto inferior direito | sempre presente, com 10% de opacidade (quase invisível sobre o vídeo); fica nítido ao passar o mouse; volta ao painel inicial |
 | `Ctrl+Shift+Q` | encerra o player, **só em modo janela** (`PLAYER_WINDOWED=1`, para desenvolvimento) |
 
-**Senha de manutenção:** no primeiro `Ctrl+Shift+M` o player pede para definir a senha; faça isso na instalação. Ela fica como hash em `security.json` na pasta de dados (apagar esse arquivo no PC redefine a senha). Após 5 erros, bloqueia por 30 s. Em tela cheia, Alt+F4 não fecha o player. **Minimizar** (menu de manutenção) esconde a janela para você usar o Windows; ela volta sozinha à tela cheia em 10 min, ou antes se você clicar no ícone na barra de tarefas. *Configurações do Windows* minimiza e abre o aplicativo Configurações.
+**Sem senha:** o painel do player abre direto, sem login (quem tem acesso ao teclado/toque do PC pode mexer; o acesso físico já é a proteção). Em tela cheia, Alt+F4 não fecha o player. **Minimizar** (menu de manutenção) esconde a janela para você usar o Windows; ela volta sozinha à tela cheia em 10 min, ou antes se você clicar no ícone na barra de tarefas. *Configurações do Windows* minimiza e abre o aplicativo Configurações.
 
 Variáveis úteis: `PLAYER_DATA_DIR`, `PLAYER_WINDOWED=1`, `PLAYER_DEBUG=1`.
 
@@ -137,4 +137,8 @@ release/          instaladores gerados (não versionar)
 
 **Ligar uma TV com menos passos:** na aba Publicar do admin, *Copiar comando de instalação* gera uma linha para colar no cmd do PC da TV (instala, conecta e escolhe a tela sozinho). Para um Player já instalado, *Baixar pair.txt* e colocar o arquivo num pendrive, em Downloads ou no Desktop antes de abrir o Player (ele se pareia sozinho se ainda não tiver conexão), ou copiar o código e usar *Colar código copiado* em Conexão com o admin. O `pair.txt` leva a chave de leitura: apague-o depois e não o envie a ninguém.
 
-**Painel para toque e mouse (v0.1.6):** botões grandes com descrição, rolagem por toque, foco visível para teclado e layout que se adapta a telas pequenas. A barra do topo tem **Minimizar** e **Janela / Tela cheia**: *Janela* tira o player da tela cheia (janela de 1200×780 que você move e redimensiona) e *Tela cheia* volta ao modo da TV. Em janela, sem usar o painel por 30 min, ele volta sozinho à tela cheia. Na tela da senha, *Mostrar/ocultar senha* ajuda a digitar no toque.
+**Painel para toque e mouse (v0.1.6):** botões grandes com descrição, rolagem por toque, foco visível para teclado e layout que se adapta a telas pequenas. A barra do topo tem **Minimizar** e **Janela / Tela cheia**: *Janela* tira o player da tela cheia (janela de 1200×780 que você move e redimensiona) e *Tela cheia* volta ao modo da TV. Em janela, sem usar o painel por 30 min, ele volta sozinho à tela cheia.
+
+**Monitoramento das telas (v0.1.8):** a aba *Monitoramento* do admin lista cada tela, se o player está online (relatou nos últimos 5 min), qual versão usa, a revisão da programação, se está em dia com o que foi publicado e o que está tocando. O player grava `status/<tela>.json` a cada 2 minutos com uma **chave do B2 que só escreve em `status/`** (Write Only, prefixo `status/`), informada em *Configurações* do admin e levada dentro do código de pareamento. A gravação é operação de upload do B2 (sem custo) e o arquivo tem ~1 KB. Sem a chave, o player funciona igual e aparece como "Sem relatório".
+
+**Compatibilidade entre versões:** uma build nova nunca deve deixar uma antiga sem funcionar. As regras são: o manifesto continua em `schemaVersion: 1` e só ganha campos **novos e opcionais** (as versões antigas os ignoram); as chaves do bucket (`screens/<id>.json`, `media/<sha256>.<ext>`) não mudam; o código de pareamento só ganha campos opcionais; objetos novos (como `status/`) são apenas acrescentados. O teste `packages/shared/test/compat.test.js` guarda cópias congeladas do validador da 0.1.0 e do decodificador da 0.1.2 e confere que o que o admin atual publica continua aceito por elas. Também foi conferido com o Player real das versões 0.1.0, 0.1.1 e 0.1.2 sincronizando uma playlist publicada pelo admin atual.

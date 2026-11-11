@@ -7,7 +7,7 @@ const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
 contextBridge.exposeInMainWorld('panelApi', {
   settings: {
     get: () => invoke('settings:get'),
-    save: (storage, keys, readKeys) => invoke('settings:save', storage, keys, readKeys),
+    save: (storage, keys, readKeys, statusKeys) => invoke('settings:save', storage, keys, readKeys, statusKeys),
     test: () => invoke('settings:test'),
     pickFolder: () => invoke('dialog:pick-folder'),
   },
@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('panelApi', {
   },
   pair: {
     code: () => invoke('pair:code'),
+  },
+  monitor: {
+    list: () => invoke('monitor:list'),
   },
   project: {
     get: () => invoke('project:get'),

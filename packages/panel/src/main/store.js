@@ -86,13 +86,20 @@ class Store {
     this._writeSecrets({ ...(this.getKeys() || {}), readKeyId: readKeys.keyId, readAppKey: readKeys.appKey });
   }
 
-  saveSettings(patch, keys, readKeys) {
+  /** Chave que SÓ grava em status/ (vai no código de pareamento para o player relatar versão e estado). */
+  saveStatusKey(k) {
+    if (!k || !k.keyId || !k.appKey) return;
+    this._writeSecrets({ ...(this.getKeys() || {}), statusKeyId: k.keyId, statusAppKey: k.appKey });
+  }
+
+  saveSettings(patch, keys, readKeys, statusKeys) {
     const next = { ...this.getSettings(), ...patch };
     this._write('settings.json', next);
     if (keys && keys.keyId && keys.appKey) {
       this._writeSecrets({ ...(this.getKeys() || {}), keyId: keys.keyId, appKey: keys.appKey });
     }
     this.saveReadKey(readKeys);
+    this.saveStatusKey(statusKeys);
     return next;
   }
 

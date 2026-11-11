@@ -49,6 +49,23 @@ function createFolderStorage({ folderPath }) {
     async delete(key) {
       await fsp.rm(resolve(key), { force: true });
     },
+    async getJson(key) {
+      try {
+        return JSON.parse(await fsp.readFile(resolve(key), 'utf8'));
+      } catch (e) {
+        if (e.code === 'ENOENT') return null;
+        throw e;
+      }
+    },
+    async list(prefix) {
+      const base = prefix.replace(/\/+$/, '');
+      const dir = resolve(base || '.');
+      try {
+        return (await fsp.readdir(dir, { withFileTypes: true })).filter((d) => d.isFile()).map((d) => ({ key: `${base}/${d.name}`, size: 0 }));
+      } catch {
+        return [];
+      }
+    },
   };
 }
 
@@ -56,7 +73,7 @@ function createB2Storage({ endpoint, region, bucket, keyId, appKey }) {
   if (!endpoint || !bucket) throw new Error('Informe endpoint e bucket do B2');
   if (!keyId || !appKey) throw new Error('Credenciais do B2 não configuradas');
   // Carregado sob demanda: o SDK é pesado e só é necessário no modo B2.
-  const { S3Client, HeadObjectCommand, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+  const { S3Client, HeadObjectCommand, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
   const { Upload } = require('@aws-sdk/lib-storage');
 
   const client = new S3Client({
@@ -110,6 +127,25 @@ function createB2Storage({ endpoint, region, bucket, keyId, appKey }) {
     },
     async delete(key) {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    },
+    async getJson(key) {
+      try {
+        const r = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+        return JSON.parse(await r.Body.transformToString());
+      } catch (e) {
+        if (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) return null;
+        throw e;
+      }
+    },
+    async list(prefix) {
+      const out = [];
+      let token;
+      do {
+        const r = await client.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }));
+        for (const o of r.Contents || []) out.push({ key: o.Key, size: o.Size || 0 });
+        token = r.IsTruncated ? r.NextContinuationToken : undefined;
+      } while (token);
+      return out;
     },
   };
 }

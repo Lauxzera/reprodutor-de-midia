@@ -7,6 +7,7 @@ const TABS = [
   ['playlist', 'Playlist'],
   ['publish', 'Publicar'],
   ['screens', 'Telas'],
+  ['monitor', 'Monitoramento'],
   ['settings', 'Configurações'],
 ];
 const DAY_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -25,6 +26,7 @@ const state = {
   testResult: null,
   quota: null, // só na versão web: uso do armazenamento do B2
   update: null, // só no app de mesa: resultado da verificação de versão
+  monitor: undefined, // monitoramento: undefined = não carregado, null = carregando, {rows, latestVersion, error}
   pair: undefined, // código de pareamento do player: undefined = não carregado, null = carregando, {ok, code|error}
 };
 
@@ -575,7 +577,7 @@ function viewPublish() {
                 h('button', { class: 'btn small', onclick: () => navigator.clipboard.writeText(state.pair.code).then(() => toast('Código copiado', 'success')) }, 'Copiar código'),
                 h('button', { class: 'btn small', onclick: () => downloadText('pair.txt', state.pair.code) }, 'Baixar pair.txt'),
               ),
-              h('p', { class: 'warn', style: 'margin:8px 0 0;font-size:13px' }, 'Trate o código como senha: ele leva a chave de leitura do bucket. Não publique nem envie em grupos.'),
+              h('p', { class: 'warn', style: 'margin:8px 0 0;font-size:13px' }, 'Trate o código como senha: ele leva a chave de leitura do bucket (e a de status, que só grava em status/). Não publique nem envie em grupos.'),
             )
           : state.pair
             ? h('div', {}, h('p', { class: 'warn', style: 'margin-top:0' }, state.pair.error), h('button', { class: 'btn small', onclick: () => setTab('settings') }, 'Abrir Configurações'))
@@ -684,6 +686,78 @@ function viewScreens() {
   );
 }
 
+// ---------- monitoramento ----------
+
+const PRESENCE = {
+  online: ['Online', 'ok'],
+  late: ['Sem sinal recente', 'warn'],
+  offline: ['Offline', 'err'],
+  none: ['Sem relatório', 'muted'],
+};
+const SYNC_STATE = { online: 'Conectado', idle: 'Conectado', offline: 'Sem internet (toca do disco)', error: 'Com erro', downloading: 'Baixando mídias', checking: 'Verificando' };
+
+function ago(sec) {
+  if (sec === null || sec === undefined) return '—';
+  if (sec < 90) return 'agora há pouco';
+  if (sec < 5400) return `há ${Math.round(sec / 60)} min`;
+  if (sec < 172800) return `há ${Math.round(sec / 3600)} h`;
+  return `há ${Math.round(sec / 86400)} dias`;
+}
+
+async function loadMonitor(auto) {
+  if (!api.monitor) return;
+  if (!auto) state.monitor = null;
+  try {
+    state.monitor = await api.monitor.list();
+  } catch (e) {
+    state.monitor = { rows: [], error: e.message };
+  }
+  if (state.tab === 'monitor') {
+    render();
+    clearTimeout(loadMonitor.timer);
+    loadMonitor.timer = setTimeout(() => state.tab === 'monitor' && loadMonitor(true), 30000);
+  }
+}
+
+function viewMonitor() {
+  if (state.monitor === undefined) loadMonitor();
+  const m = state.monitor;
+  const head = h('div', { class: 'row wrap', style: 'align-items:center;gap:10px' }, h('h2', { style: 'margin:0' }, 'Monitoramento das telas'), h('span', { class: 'spacer' }), h('button', { class: 'btn small', onclick: () => loadMonitor() }, 'Atualizar agora'));
+  if (!m) return h('div', {}, head, h('p', { class: 'muted' }, 'Consultando o bucket…'));
+
+  const rows = (m.rows || []).map((r) => {
+    const [label, cls] = PRESENCE[r.presence] || PRESENCE.none;
+    const rep = r.report || {};
+    const ver = r.version ? `v${r.version}` : '—';
+    const verNote = r.versionState === 'old' ? h('span', { class: 'warn' }, ` · desatualizada (última: v${m.latestVersion})`) : r.versionState === 'latest' ? h('span', { class: 'ok' }, ' · atual') : null;
+    const sync = r.report ? SYNC_STATE[rep.state] || rep.state : '—';
+    const behind = r.published !== null && rep.revision !== null && rep.revision !== undefined && rep.revision < r.published;
+    const rev = r.report ? `rev. ${rep.revision ?? '—'}${behind ? ` (publicada: ${r.published})` : ''}` : r.published !== null ? `publicada: ${r.published}` : '—';
+    return h(
+      'tr',
+      {},
+      h('td', {}, h('b', {}, r.name), r.registered ? null : h('div', { class: 'muted', style: 'font-size:12px' }, 'não está no projeto')),
+      h('td', {}, h('span', { class: `badge ${cls}` }, label), h('div', { class: 'muted', style: 'font-size:12px' }, r.report ? ago(r.ageSec) : 'nunca relatou')),
+      h('td', {}, ver, verNote),
+      h('td', {}, sync, rep.message ? h('div', { class: 'muted', style: 'font-size:12px' }, rep.message) : null),
+      h('td', {}, rev, r.report ? h('div', { class: 'muted', style: 'font-size:12px' }, `${rep.playableCount ?? 0}/${rep.itemCount ?? 0} mídias no disco`) : null),
+      h('td', {}, rep.playing || '—'),
+    );
+  });
+
+  const none = (m.rows || []).some((r) => r.presence === 'none');
+  return h(
+    'div',
+    {},
+    head,
+    h('p', { class: 'sub' }, 'Mostra cada tela, se o player está ligado e qual versão usa. Atualiza sozinho a cada 30 segundos. Versões antigas continuam funcionando: a programação publicada aqui é lida por todas.'),
+    m.error || m.listError ? h('p', { class: 'warn' }, `Não foi possível ler os relatórios: ${m.error || m.listError}`) : null,
+    h('div', { class: 'card' }, h('table', {}, h('thead', {}, h('tr', {}, ['Tela', 'Situação', 'Versão do player', 'Sincronização', 'Programação', 'Tocando agora'].map((t) => h('th', {}, t)))), h('tbody', {}, rows.length ? rows : h('tr', {}, h('td', { colspan: '6', class: 'muted' }, 'Nenhuma tela ainda.'))))),
+    none ? h('p', { class: 'muted', style: 'font-size:13px' }, '"Sem relatório" significa que o player nunca enviou o status: ou é uma versão anterior à 0.1.8 (funciona normalmente, só não relata), ou foi pareado sem a chave de status. Para relatar, informe a chave de status em Configurações e gere o código de pareamento de novo.') : null,
+    m.at ? h('p', { class: 'muted', style: 'font-size:12px' }, `Consultado às ${new Date(m.at).toLocaleTimeString('pt-BR')}. Online = relatou nos últimos 5 minutos.`) : null,
+  );
+}
+
 // ---------- configurações ----------
 
 function viewSettings() {
@@ -692,6 +766,8 @@ function viewSettings() {
   const appKey = h('input', { type: 'password', placeholder: state.settings.hasKeys ? '•••• (salva)' : 'applicationKey', autocomplete: 'off' });
   const readKeyId = h('input', { type: 'text', value: state.settings.readKeyId || '', placeholder: 'keyID da chave SOMENTE LEITURA', autocomplete: 'off' });
   const readAppKey = h('input', { type: 'password', placeholder: state.settings.hasReadKey ? '•••• (salva)' : 'applicationKey da chave somente leitura', autocomplete: 'off' });
+  const statusKeyId = h('input', { type: 'text', value: state.settings.statusKeyId || '', placeholder: 'keyID da chave de STATUS (só grava em status/)', autocomplete: 'off' });
+  const statusAppKey = h('input', { type: 'password', placeholder: state.settings.hasStatusKey ? '•••• (salva)' : 'applicationKey da chave de status', autocomplete: 'off' });
   const result = h('span', { class: state.testResult && state.testResult.ok ? 'ok' : 'err' }, state.testResult ? (state.testResult.ok ? 'Conexão OK: gravou e apagou um arquivo de teste.' : `Falhou: ${state.testResult.error}`) : '');
 
   const text = (label, key, placeholder, help) =>
@@ -733,6 +809,10 @@ function viewSettings() {
           readKeyId,
           readAppKey,
           h('div', { class: 'muted', style: 'font-size:12px' }, 'Crie no B2 uma segunda chave, restrita ao bucket, com acesso Read Only. Ela vai dentro do código de pareamento; a chave de gravação nunca.'),
+          h('label', { style: 'margin-top:10px' }, 'Chave de status dos players (opcional: habilita a aba Monitoramento)'),
+          statusKeyId,
+          statusAppKey,
+          h('div', { class: 'muted', style: 'font-size:12px' }, 'Crie no B2 uma terceira chave, restrita ao bucket e ao prefixo status/, com permissão só de escrita (Write Only). Os players a usam apenas para relatar versão e estado; ela não lê nem apaga nada fora de status/.'),
         )
       : null,
   );
@@ -757,8 +837,9 @@ function viewSettings() {
   const save = async () => {
     const keys = keyId.value.trim() && appKey.value ? { keyId: keyId.value.trim(), appKey: appKey.value } : null;
     const readKeys = readKeyId.value.trim() && readAppKey.value ? { keyId: readKeyId.value.trim(), appKey: readAppKey.value } : null;
+    const statusKeys = statusKeyId.value.trim() && statusAppKey.value ? { keyId: statusKeyId.value.trim(), appKey: statusAppKey.value } : null;
     try {
-      state.settings = await api.settings.save({ type: d.type, endpoint: d.endpoint, region: d.region, bucket: d.bucket, publicBaseUrl: d.publicBaseUrl, privateBucket: Boolean(d.privateBucket), folderPath: d.folderPath }, keys, readKeys);
+      state.settings = await api.settings.save({ type: d.type, endpoint: d.endpoint, region: d.region, bucket: d.bucket, publicBaseUrl: d.publicBaseUrl, privateBucket: Boolean(d.privateBucket), folderPath: d.folderPath }, keys, readKeys, statusKeys);
       state.pair = undefined; // regera o código de pareamento com os dados novos
       state.settingsDraft = { ...state.settings };
       toast('Configurações salvas', 'success');
@@ -853,7 +934,7 @@ function renderHeader() {
 
 function render() {
   renderHeader();
-  const views = { library: viewLibrary, playlist: viewPlaylist, publish: viewPublish, screens: viewScreens, settings: viewSettings };
+  const views = { library: viewLibrary, playlist: viewPlaylist, publish: viewPublish, screens: viewScreens, monitor: viewMonitor, settings: viewSettings };
   const view = document.getElementById('view');
   const scroll = view.scrollTop;
   view.replaceChildren(views[state.tab]());
@@ -862,6 +943,7 @@ function render() {
 
 function setTab(tab) {
   state.tab = tab;
+  if (tab === 'monitor') state.monitor = undefined;
   if (tab === 'settings') state.settingsDraft = { ...state.settings };
   render();
 }

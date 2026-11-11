@@ -9,6 +9,7 @@ const { listScreens } = require('./screens');
 const { findPairFile, writePairConfig } = require('./pairfile');
 const { SyncEngine } = require('./sync');
 const { loadConfig } = require('./config');
+const { StatusReporter } = require('./reporter');
 const { createLogger, readLogTail } = require('./logger');
 const { Watchdog } = require('./watchdog');
 const { Security } = require('./security');
@@ -39,6 +40,29 @@ function main() {
     log,
   });
   engine.init();
+
+  const startedAt = new Date().toISOString();
+  let playingName = '';
+  const reporter = new StatusReporter({
+    baseUrl: config.baseUrl,
+    screenId: config.screenId,
+    keyId: config.statusKeyId,
+    secretKey: config.statusSecret,
+    region: config.region,
+    log,
+    collect: () => ({
+      version: app.getVersion(),
+      platform: process.platform,
+      state: engine.status.state,
+      message: engine.status.message,
+      lastSyncAt: engine.status.lastSyncAt,
+      revision: engine.manifest ? engine.manifest.revision : null,
+      itemCount: engine.manifest ? engine.manifest.items.length : 0,
+      playableCount: engine.playableItems().length,
+      playing: playingName,
+      startedAt,
+    }),
+  });
 
   let win = null;
   let screenChoices = []; // telas publicadas quando há mais de uma e falta escolher
@@ -106,6 +130,7 @@ function main() {
     itemCount: engine.manifest ? engine.manifest.items.length : 0,
     playableCount: engine.playableItems().length,
     status: engine.status,
+    report: reporter.info(),
     update: updateInfo ? { current: updateInfo.current, latest: updateInfo.latest, newer: updateInfo.newer, notes: updateInfo.notes, error: updateError } : updateError ? { error: updateError } : null,
   });
 
@@ -129,10 +154,17 @@ function main() {
   ipcMain.on('player:heartbeat', () => watchdog.heartbeat());
   ipcMain.on('player:log', (_e, message) => log(`Player: ${message}`));
   ipcMain.on('player:playing', (_e, info) => {
+    if (info && typeof info === 'object') {
+      const it = engine.manifest && engine.manifest.items.find((x) => x.id === info.id);
+      playingName = it ? it.name || it.id : '';
+    }
     if (info && typeof info === 'object') watchdog.itemStarted({ id: typeof info.id === 'string' ? info.id : null, expectedMs: Number(info.expectedMs) });
   });
 
-  engine.on('manifest', notify);
+  engine.on('manifest', () => {
+    notify();
+    reporter.nudge();
+  });
   engine.on('status', (s) => {
     notify();
     // Registra só as mudanças de estado (online/offline/erro), sem poluir o log a cada consulta.
@@ -167,6 +199,7 @@ function main() {
     if (r.ok) log('Senha de manutenção definida');
     return r;
   });
+  ipcMain.handle('maint:session', () => ({ ok: true, token: security.issueToken() })); // painel sem senha
   ipcMain.handle('maint:auth', (_e, password) => {
     const r = security.verify(password);
     log(r.ok ? 'Manutenção: acesso liberado' : `Manutenção: tentativa de acesso recusada (${r.error})`);
@@ -325,6 +358,13 @@ function main() {
       // Credenciais do código de pareamento (ficaram só no processo principal).
       next.keyId = pendingPair.keyId;
       next.region = pendingPair.region;
+      if (pendingPair.statusKeyId && pendingPair.statusSecret) {
+        next.statusKeyId = pendingPair.statusKeyId;
+        next.statusSecret = pendingPair.statusSecret;
+      } else {
+        delete next.statusKeyId;
+        delete next.statusSecret;
+      }
       if (pendingPair.secretKey) next.secretKey = pendingPair.secretKey;
       else delete next.secretKey;
     } else {
@@ -547,7 +587,10 @@ function main() {
         log(`metrics MB: ${m.join(' ')}`);
       }, 15000);
     }
-    if (config.configured) engine.start();
+    if (config.configured) {
+      engine.start();
+      reporter.start();
+    }
     else if (config.baseUrl && config.keyId && config.secretKey) autoPickScreen();
     else {
       // Sem conexão: procura um pair.txt (pasta de dados, Downloads, Desktop ou pendrive) e se pareia sozinho.
@@ -578,6 +621,7 @@ function main() {
   app.on('before-quit', () => {
     quitting = true;
     engine.stop();
+    reporter.stop();
     watchdog.stop();
   });
 }

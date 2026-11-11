@@ -46,6 +46,13 @@ function writePairConfig(configFile, pair) {
   const next = { ...cur, baseUrl: pair.baseUrl, pollSeconds: pair.pollSeconds, keyId: pair.keyId, region: pair.region };
   if (pair.secretKey) next.secretKey = pair.secretKey;
   else delete next.secretKey;
+  if (pair.statusKeyId && pair.statusSecret) {
+    next.statusKeyId = pair.statusKeyId;
+    next.statusSecret = pair.statusSecret;
+  } else {
+    delete next.statusKeyId;
+    delete next.statusSecret;
+  }
   fs.writeFileSync(configFile, JSON.stringify(next, null, 2));
   return next;
 }

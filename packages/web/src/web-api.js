@@ -9,6 +9,7 @@ const { publishScreen } = require('../../panel/src/main/publish');
 const { hashAndProbe } = require('./sha256');
 const { assessStorage, fmtBytes } = require('../../shared/src/quota');
 const { encodePair } = require('../../shared/src/pair');
+const { collectMonitor, fetchLatestVersion } = require('../../shared/src/status');
 
 const LIBRARY_KEY = 'admin/library.json';
 const PROJECT_KEY = 'admin/project.json';
@@ -44,11 +45,13 @@ const extOf = (name) => {
  * @param {Function} [o.logout]
  * @param {Function} [o.pickFiles] () => Promise<File[]>   (seletor de arquivos do navegador)
  */
-function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getReadKey = () => null, convertVideo = null }) {
+function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getReadKey = () => null, getStatusKey = () => null, convertVideo = null, fetchLatest = fetchLatestVersion }) {
   const viewSettings = () => {
     const rk = getReadKey();
-    return { type: 'b2', ...settings, hasKeys: true, hasReadKey: Boolean(rk), readKeyId: rk ? rk.keyId : '', baseUrl: baseUrlFor(settings) };
+    const sk = getStatusKey();
+    return { type: 'b2', ...settings, hasKeys: true, hasReadKey: Boolean(rk), readKeyId: rk ? rk.keyId : '', hasStatusKey: Boolean(sk), statusKeyId: sk ? sk.keyId : '', baseUrl: baseUrlFor(settings) };
   };
+  let latest = { at: 0, version: '' }; // última versão publicada (cache de 10 min)
   let library = null; // entradas (sem url/path)
   const localFiles = new Map(); // sha256 -> File desta sessão (para reenviar se faltar no bucket)
   const publishListeners = [];
@@ -152,8 +155,8 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getR
     web: true,
     settings: {
       get: async () => viewSettings(),
-      save: async (patch, keys, readKeys) => {
-        await saveSettings({ endpoint: patch.endpoint, region: patch.region, bucket: patch.bucket, publicBaseUrl: patch.publicBaseUrl || '', privateBucket: Boolean(patch.privateBucket) }, keys, readKeys);
+      save: async (patch, keys, readKeys, statusKeys) => {
+        await saveSettings({ endpoint: patch.endpoint, region: patch.region, bucket: patch.bucket, publicBaseUrl: patch.publicBaseUrl || '', privateBucket: Boolean(patch.privateBucket) }, keys, readKeys, statusKeys);
         return viewSettings();
       },
       test: async () => {
@@ -226,10 +229,18 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getR
         if (!settings.endpoint || !settings.bucket) return { ok: false, error: 'Configure o bucket do B2 em Configurações.' };
         if (settings.privateBucket && !rk) return { ok: false, error: 'Informe a chave de leitura do player em Configurações.' };
         try {
-          return { ok: true, code: encodePair({ endpoint: settings.endpoint, bucket: settings.bucket, keyId: settings.privateBucket ? rk.keyId : '', secretKey: settings.privateBucket ? rk.appKey : '', pollSeconds: settings.privateBucket ? 120 : 60, publicBaseUrl: settings.publicBaseUrl }) };
+          return { ok: true, code: encodePair({ endpoint: settings.endpoint, bucket: settings.bucket, keyId: settings.privateBucket ? rk.keyId : '', secretKey: settings.privateBucket ? rk.appKey : '', pollSeconds: settings.privateBucket ? 120 : 60, publicBaseUrl: settings.publicBaseUrl, statusKeyId: getStatusKey() ? getStatusKey().keyId : '', statusSecret: getStatusKey() ? getStatusKey().appKey : '' }) };
         } catch (e) {
           return { ok: false, error: e.message };
         }
+      },
+    },
+    monitor: {
+      // Telas do projeto + último relatório de cada player (versão, estado, o que toca).
+      list: async () => {
+        const project = await loadProject();
+        if (!latest.at || Date.now() - latest.at > 10 * 60 * 1000) latest = { at: Date.now(), version: await fetchLatest() };
+        return collectMonitor({ storage, project, latestVersion: latest.version });
       },
     },
     quota: {

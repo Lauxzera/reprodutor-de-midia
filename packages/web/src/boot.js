@@ -61,13 +61,14 @@ function makeStorage(settings, creds) {
 const fileInput = el('input', { type: 'file', multiple: true, hidden: true, id: 'rm-file-input', accept: 'image/*,video/*,.mp4,.m4v,.mov,.webm' });
 document.body.append(fileInput);
 
-function start({ storage, settings, saveSettings, logout, getReadKey }) {
+function start({ storage, settings, saveSettings, logout, getReadKey, getStatusKey }) {
   const api = createWebApi({
     storage,
     settings,
     saveSettings,
     logout,
     getReadKey,
+    getStatusKey,
     convertVideo,
     pickFiles: () =>
       new Promise((resolve) => {
@@ -88,9 +89,11 @@ function demo() {
   const settings = { endpoint: 'https://s3.exemplo.backblazeb2.com', region: 'exemplo', bucket: 'demonstracao', privateBucket: true, publicBaseUrl: '' };
   const banner = el('div', { class: 'demo-banner' }, 'Modo demonstração: os dados ficam só na memória desta aba e somem ao fechar.');
   document.body.prepend(banner);
-  window.__rm = { convertVideo }; // usado nos testes automatizados do modo demonstração
+  const demoStorage = createMemoryS3();
+  window.__rm = { convertVideo, storage: demoStorage }; // usado nos testes automatizados do modo demonstração
   let readKey = { keyId: 'LEITURA-DEMO', appKey: 'demo-demo-demo' };
-  start({ storage: createMemoryS3(), settings, saveSettings: async (p, _k, rk) => { Object.assign(settings, p); if (rk) readKey = rk; }, logout: async () => location.reload(), getReadKey: () => readKey });
+  let statusKey = { keyId: 'STATUS-DEMO', appKey: 'demo-demo-demo' };
+  start({ storage: demoStorage, settings, saveSettings: async (p, _k, rk, sk) => { Object.assign(settings, p); if (rk) readKey = rk; if (sk) statusKey = sk; }, logout: async () => location.reload(), getReadKey: () => readKey, getStatusKey: () => statusKey });
 }
 
 function setup() {
@@ -181,7 +184,7 @@ function launch(settings, creds, passphrase) {
   // O painel guarda uma referência fixa ao storage; este proxy repassa para o cliente atual (muda se as chaves mudarem).
   const storage = new Proxy({}, { get: (_t, k) => (typeof current[k] === 'function' ? (...a) => current[k](...a) : current[k]) });
 
-  const saveSettings = async (patch, keys, readKeys) => {
+  const saveSettings = async (patch, keys, readKeys, statusKeys) => {
     Object.assign(settings, patch);
     store.set(LS_SETTINGS, JSON.stringify(settings));
     let changed = false;
@@ -193,11 +196,16 @@ function launch(settings, creds, passphrase) {
       creds = { ...creds, readKeyId: readKeys.keyId, readAppKey: readKeys.appKey };
       changed = true;
     }
+    if (statusKeys && statusKeys.keyId && statusKeys.appKey) {
+      creds = { ...creds, statusKeyId: statusKeys.keyId, statusAppKey: statusKeys.appKey };
+      changed = true;
+    }
     if (changed) store.set(LS_VAULT, JSON.stringify(await vault.seal(passphrase, creds)));
     current = makeStorage(settings, creds);
   };
   const getReadKey = () => (creds.readKeyId && creds.readAppKey ? { keyId: creds.readKeyId, appKey: creds.readAppKey } : null);
-  start({ storage, settings, saveSettings, logout: async () => location.reload(), getReadKey });
+  const getStatusKey = () => (creds.statusKeyId && creds.statusAppKey ? { keyId: creds.statusKeyId, appKey: creds.statusAppKey } : null);
+  start({ storage, settings, saveSettings, logout: async () => location.reload(), getReadKey, getStatusKey });
 }
 
 if (new URLSearchParams(location.search).has('demo')) demo();

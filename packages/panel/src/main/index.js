@@ -4,7 +4,7 @@ const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron')
 const path = require('node:path');
 const fs = require('node:fs');
 const { Store } = require('./store');
-const { encodePair, checkForUpdate, downloadUpdate, launchInstaller } = require('@reprodutor/shared');
+const { encodePair, checkForUpdate, downloadUpdate, launchInstaller, collectMonitor, fetchLatestVersion } = require('@reprodutor/shared');
 const { createStorage, publicBaseUrl } = require('./storage');
 const { publishScreen } = require('./publish');
 const { IMAGE_EXT, VIDEO_EXT, screenKey } = require('@reprodutor/shared');
@@ -60,12 +60,12 @@ function registerIpc() {
 
   const settingsView = () => {
     const k = store.getKeys() || {};
-    return { ...store.getSettings(), hasKeys: store.hasKeys(), hasReadKey: Boolean(k.readKeyId && k.readAppKey), readKeyId: k.readKeyId || '', baseUrl: publicBaseUrl(store.getSettings()) };
+    return { ...store.getSettings(), hasKeys: store.hasKeys(), hasReadKey: Boolean(k.readKeyId && k.readAppKey), readKeyId: k.readKeyId || '', hasStatusKey: Boolean(k.statusKeyId && k.statusAppKey), statusKeyId: k.statusKeyId || '', baseUrl: publicBaseUrl(store.getSettings()) };
   };
   ipcMain.handle('settings:get', () => settingsView());
 
-  ipcMain.handle('settings:save', (_e, patch, keys, readKeys) => {
-    store.saveSettings(patch, keys, readKeys);
+  ipcMain.handle('settings:save', (_e, patch, keys, readKeys, statusKeys) => {
+    store.saveSettings(patch, keys, readKeys, statusKeys);
     return settingsView();
   });
 
@@ -76,10 +76,18 @@ function registerIpc() {
     if (s.type !== 'b2' || !s.endpoint || !s.bucket) return { ok: false, error: 'Configure o bucket do B2 em Configurações.' };
     if (s.privateBucket && !(k.readKeyId && k.readAppKey)) return { ok: false, error: 'Informe a chave de leitura do player em Configurações.' };
     try {
-      return { ok: true, code: encodePair({ endpoint: s.endpoint, bucket: s.bucket, keyId: s.privateBucket ? k.readKeyId : '', secretKey: s.privateBucket ? k.readAppKey : '', pollSeconds: s.privateBucket ? 120 : 60, publicBaseUrl: s.publicBaseUrl }) };
+      return { ok: true, code: encodePair({ endpoint: s.endpoint, bucket: s.bucket, keyId: s.privateBucket ? k.readKeyId : '', secretKey: s.privateBucket ? k.readAppKey : '', pollSeconds: s.privateBucket ? 120 : 60, publicBaseUrl: s.publicBaseUrl, statusKeyId: k.statusKeyId, statusSecret: k.statusAppKey }) };
     } catch (e) {
       return { ok: false, error: e.message };
     }
+  });
+
+  // Telas do projeto + último relatório de cada player.
+  let latest = { at: 0, version: '' };
+  ipcMain.handle('monitor:list', async () => {
+    const { storage } = currentStorage();
+    if (!latest.at || Date.now() - latest.at > 10 * 60 * 1000) latest = { at: Date.now(), version: await fetchLatestVersion() };
+    return collectMonitor({ storage, project: store.getProject(), latestVersion: latest.version });
   });
 
   ipcMain.handle('settings:test', async () => {

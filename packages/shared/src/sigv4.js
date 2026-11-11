@@ -23,7 +23,7 @@ function regionFromHost(host) {
  * Devolve os cabeçalhos a acrescentar (host é definido pelo próprio fetch).
  * Range e If-None-Match não precisam ser assinados.
  */
-function signGet(url, { keyId, secretKey, region, method = 'GET', now = new Date() }) {
+function signGet(url, { keyId, secretKey, region, method = 'GET', now = new Date(), payloadSha256 = EMPTY_SHA256 }) {
   const u = new URL(url);
   const reg = region || regionFromHost(u.host);
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, ''); // 20260101T000000Z
@@ -41,7 +41,7 @@ function signGet(url, { keyId, secretKey, region, method = 'GET', now = new Date
 
   const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
   const canonicalHeaders = `host:${u.host}\nx-amz-content-sha256:${EMPTY_SHA256}\nx-amz-date:${amzDate}\n`;
-  const canonicalRequest = [method, canonicalUri, query, canonicalHeaders, signedHeaders, EMPTY_SHA256].join('\n');
+  const canonicalRequest = [method, canonicalUri, query, canonicalHeaders, signedHeaders, payloadSha256].join('\n');
 
   const scope = `${date}/${reg}/s3/aws4_request`;
   const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, crypto.createHash('sha256').update(canonicalRequest).digest('hex')].join('\n');
@@ -52,7 +52,7 @@ function signGet(url, { keyId, secretKey, region, method = 'GET', now = new Date
 
   return {
     'x-amz-date': amzDate,
-    'x-amz-content-sha256': EMPTY_SHA256,
+    'x-amz-content-sha256': payloadSha256,
     authorization: `AWS4-HMAC-SHA256 Credential=${keyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
   };
 }
@@ -65,4 +65,12 @@ function signedFetch(baseFetch, creds) {
   };
 }
 
-module.exports = { signGet, signedFetch, regionFromHost };
+/** PUT assinado de um JSON (usado pelo relatório de status do player, com chave restrita a status/). */
+function putJsonSigned(baseFetch, url, obj, creds, { signal } = {}) {
+  const body = Buffer.from(JSON.stringify(obj));
+  const payloadSha256 = crypto.createHash('sha256').update(body).digest('hex');
+  const headers = { ...signGet(String(url), { ...creds, method: 'PUT', payloadSha256 }), 'content-type': 'application/json', 'cache-control': 'no-cache' };
+  return baseFetch(url, { method: 'PUT', headers, body, signal });
+}
+
+module.exports = { signGet, signedFetch, putJsonSigned, regionFromHost };

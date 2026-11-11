@@ -31,7 +31,7 @@ function checksum(text) {
 
 const regionOf = (endpoint) => (/^https:\/\/s3\.([a-z0-9-]+)\.backblazeb2\.com/i.exec(endpoint) || [])[1] || '';
 
-function encodePair({ endpoint, bucket, keyId, secretKey, pollSeconds, publicBaseUrl }) {
+function encodePair({ endpoint, bucket, keyId, secretKey, pollSeconds, publicBaseUrl, statusKeyId, statusSecret }) {
   if (!/^https:\/\/[^\s/]+$/.test(endpoint || '')) throw new Error('Endpoint inválido para o código de pareamento');
   if (!bucket) throw new Error('Bucket não informado');
   const body = { v: 1, e: endpoint, b: bucket };
@@ -40,6 +40,11 @@ function encodePair({ endpoint, bucket, keyId, secretKey, pollSeconds, publicBas
     body.s = secretKey;
   }
   if (publicBaseUrl) body.u = publicBaseUrl;
+  // Opcional (a partir da 0.1.8): chave que só grava em status/, para o player relatar versão e estado. Players antigos ignoram.
+  if (statusKeyId && statusSecret) {
+    body.wk = statusKeyId;
+    body.ws = statusSecret;
+  }
   if (Number(pollSeconds) > 0) body.p = Math.round(Number(pollSeconds));
   const payload = b64(JSON.stringify(body));
   return `${PREFIX}${payload}.${checksum(payload)}`;
@@ -66,13 +71,18 @@ function decodePair(code) {
   const private_ = Boolean(body.k && body.s);
   const host = new URL(body.e).host;
   const baseUrl = body.u ? String(body.u).replace(/\/+$/, '') : private_ ? `https://${host}/${body.b}` : `https://${body.b}.${host}`;
-  return {
+  const out = {
     baseUrl,
     keyId: private_ ? body.k : '',
     secretKey: private_ ? body.s : '',
     region: regionOf(body.e),
     pollSeconds: Number.isFinite(body.p) && body.p >= 5 ? body.p : 120,
   };
+  if (body.wk && body.ws) {
+    out.statusKeyId = String(body.wk);
+    out.statusSecret = String(body.ws);
+  }
+  return out;
 }
 
 const isPairCode = (text) => String(text || '').trim().startsWith(PREFIX);

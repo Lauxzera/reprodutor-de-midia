@@ -51,3 +51,15 @@ Requisito: o navegador precisa decodificar HEVC. No Windows isso vem da extensã
 - Não use um computador público ou alheio: a chave de escrita ficaria acessível a quem usar aquele navegador depois, se ele ficar desbloqueado. Use *Sair (bloquear)* ao terminar.
 - Cada acesso ao painel consulta o bucket (leituras e gravações contam na cota diária gratuita do B2, pequena para uso normal).
 - Para publicar uma versão nova do painel web: `npm run build:web` e envie `docs/painel/` para o GitHub (o Pages republica sozinho).
+
+## Monitoramento das telas
+
+A aba **Monitoramento** mostra, para cada tela, a situação do player (online, sem sinal recente, offline ou sem relatório), a versão em uso (com aviso quando há uma mais nova no GitHub), a revisão da programação, o estado da sincronização e o item em exibição. Atualiza sozinha a cada 30 segundos.
+
+Para habilitar:
+
+1. No B2, crie uma terceira chave de aplicação (além da de leitura e escrita do painel e da somente leitura do player): restrita ao bucket, com o prefixo **`status/`** e permissão **somente de escrita** (Write Only).
+2. Em *Configurações*, informe o keyID e a applicationKey dessa chave de status e salve.
+3. Gere o código de pareamento de novo (aba *Publicar*) e use-o nos players (Player 0.1.8 ou mais novo). A chave de status leva só o direito de gravar em `status/`: não lê mídia, não lista e não apaga nada.
+
+Players de versões anteriores à 0.1.8 seguem funcionando normalmente e aparecem como "Sem relatório".

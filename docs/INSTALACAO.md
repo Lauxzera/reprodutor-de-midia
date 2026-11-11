@@ -28,7 +28,7 @@ Digite as credenciais somente no painel. Elas ficam criptografadas naquele compu
 ## 3. Player (PC das TVs)
 
 1. Execute `ReprodutorPlayer-Setup-<versão>.exe`. O player abre em tela cheia.
-2. Na tela "Player não configurado", pressione **Ctrl+Shift+M**. Na primeira vez ele pede para **definir a senha de manutenção**. Guarde essa senha.
+2. Na tela "Player não configurado", pressione **Ctrl+Shift+M**. O painel abre direto, sem senha.
 3. No menu de manutenção, clique em **Configurar conexão**, cole o **código de pareamento** copiado do painel, escolha a tela na lista e clique em **Salvar e reiniciar**. (Atalho: instalar com `install.ps1 -App player -Pair <código>` já grava a configuração; a tela é escolhida sozinha se só houver uma publicada.)
 4. O player baixa as mídias e começa a tocar. Para conferir: **Ctrl+Shift+D** mostra revisão, itens no disco e estado da sincronização.
 5. Para o PC ligar sozinho tocando, faça uma vez:
@@ -36,13 +36,13 @@ Digite as credenciais somente no painel. Elas ficam criptografadas naquele compu
    - ative o login automático do Windows (`Win+R` > `netplwiz`);
    - ajuste as *Horas ativas* do Windows Update para cobrir o horário da loja.
 
-Para mexer no Windows com o player em tela cheia: clique no botão ⚙ do **canto inferior direito** (ele fica quase transparente; fica nítido ao passar o mouse), digite a senha de manutenção e escolha **Minimizar o player** ou **Configurações do Windows**. O player volta sozinho à tela cheia em 10 minutos.
+Para mexer no Windows com o player em tela cheia: clique no botão ⚙ do **canto inferior direito** (ele fica quase transparente; fica nítido ao passar o mouse), escolha **Minimizar o player** ou **Configurações do Windows**. O player volta sozinho à tela cheia em 10 minutos.
 
 O player se registra para abrir no login do Windows (`"autoStart": true` no `config.json`). Não é necessário o `install-autostart.ps1`, que é só para rodar pelo código-fonte.
 
 ### Atualizações
 
-Com a versão 0.1.4 ou mais nova, o Player avisa quando há versão nova (pontinho laranja no botão ⚙). Clique no botão, digite a senha de manutenção e use **Atualizar para vX**; ele baixa, confere o hash, instala e reabre sozinho. Nas versões anteriores, use o comando de instalação do README uma vez.
+Com a versão 0.1.4 ou mais nova, o Player avisa quando há versão nova (pontinho laranja no botão ⚙). Clique no botão e use **Atualizar para vX**; ele baixa, confere o hash, instala e reabre sozinho. Nas versões anteriores, use o comando de instalação do README uma vez.
 
 ## 4. Antes de levar o PC a um evento
 
@@ -54,8 +54,8 @@ Não depende de internet: imagens e vídeos publicados. Depende: qualquer conte�
 
 ## 5. Atualizar e desinstalar
 
-- **Atualizar:** instale a versão nova por cima. Configuração, senha e mídias ficam preservadas.
-- **Desinstalar:** pelo "Aplicativos instalados" do Windows. Os dados (mídias, senha, configuração) **não** são apagados; para limpar tudo, apague também as pastas abaixo.
+- **Atualizar:** instale a versão nova por cima. Configuração e mídias ficam preservadas.
+- **Desinstalar:** pelo "Aplicativos instalados" do Windows. Os dados (mídias, configuração) **não** são apagados; para limpar tudo, apague também as pastas abaixo.
 
 | App | Pasta de dados |
 |---|---|
@@ -70,7 +70,6 @@ Não depende de internet: imagens e vídeos publicados. Depende: qualquer conte�
 | Player diz "Manifesto não encontrado" | falta clicar em *Publicar* no painel, ou o ID da tela difere do cadastrado |
 | Player não baixa nada | a URL do bucket deve ser pública e abrir no navegador; confira em Ctrl+Shift+D |
 | Imagem aparece mas o vídeo não | converta para MP4 H.264 |
-| Esqueci a senha de manutenção | no PC do player, apague `security.json` na pasta de dados e abra o menu de novo para definir outra |
 | Quero ver o que aconteceu | menu de manutenção mostra o fim do log; o arquivo completo é `player.log` na pasta de dados |
 
 ## 7. Aviso do Windows ("editor desconhecido")

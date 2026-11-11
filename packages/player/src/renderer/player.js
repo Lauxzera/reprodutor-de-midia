@@ -76,7 +76,7 @@ function showIdle(show) {
       ? `Há ${state.screenChoices.length} telas publicadas. Pressione Ctrl+Shift+M > Configurar conexão para escolher a deste player.`
       : 'Pareado. Aguardando uma tela ser publicada pelo painel…'
     : !state.configured
-    ? 'Player não configurado. Pressione Ctrl+Shift+M para definir a senha e colar o código de pareamento.'
+    ? 'Player não configurado. Pressione Ctrl+Shift+M (ou o botão do canto) para colar o código de pareamento.'
     : state.status && state.status.state === 'downloading'
       ? state.status.message
       : state.status && state.status.state === 'error'

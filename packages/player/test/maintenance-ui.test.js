@@ -1,7 +1,7 @@
 'use strict';
 
 // Regressão do menu de manutenção: roda o maintenance.js (script do renderer) contra um DOM de mentira
-// e percorre definir senha -> menu -> configurar conexão -> voltar -> fechar -> entrar de novo.
+// e percorre menu -> configurar conexão -> voltar -> fechar -> entrar de novo.
 // Pega erros como "função usada fora do escopo" que só apareciam com o app aberto.
 
 const test = require('node:test');
@@ -92,7 +92,7 @@ function setup(apiOverrides = {}) {
       setDisplay: async () => ({ ok: true, message: 'Exibição salva e aplicada.' }),
       status: async () => ({ hasPassword: password !== null, lockedMs: 0 }),
       setPassword: async (p) => ((password = p), { ok: true }),
-      auth: async (p) => (p === password ? { ok: true, token: 't1' } : { ok: false, error: 'Senha incorreta' }),
+      session: async () => ({ ok: true, token: 't1' }),
       info: async () => ({ ok: true, snapshot: { screenId: 'loja', revision: 1, playableCount: 0, itemCount: 0, status: { state: 'idle' } }, log: '(log)' }),
       action: async () => ({ ok: true, message: 'feito' }),
       getConfig: async () => ({ ok: true, baseUrl: '', screenId: '', pollSeconds: 60, keyId: '', hasSecret: false }),
@@ -165,13 +165,10 @@ test('painel inicial: a contagem chega a zero e começa a reprodução', async (
   assert.ok(t.maint.classList.contains('hidden'));
 });
 
-test('painel inicial: botões pedem a senha, depois seguem para a tela pedida; botão do canto volta ao painel', async () => {
+test('painel inicial: botões vão direto, sem senha, para para a tela pedida; botão do canto volta ao painel', async () => {
   const t = setup();
   await t.tick();
   await t.click(/Exibição/);
-  assert.match(t.maint.innerText, /Defina a senha/);
-  for (const i of t.inputs()) i.value = 'senha-123';
-  await t.click(/Definir e entrar/);
   assert.match(t.maint.innerText, /Ajuste da imagem/);
   assert.match(t.maint.innerText, /Rotação da tela/);
   await t.click(/Salvar/);
@@ -194,13 +191,7 @@ test('painel inicial: botões pedem a senha, depois seguem para a tela pedida; b
   await openCorner(t);
   assert.match(t.maint.innerText, /Mídias baixadas/);
   await t.click(/Configurações do Windows/);
-  assert.match(t.maint.innerText, /Digite a senha/);
-  t.inputs()[0].value = 'errada';
-  await t.click(/Entrar/);
-  assert.match(t.maint.innerText, /Senha incorreta/);
-  t.inputs()[0].value = 'senha-123';
-  await t.click(/Entrar/);
-  assert.ok(t.maint.classList.contains('hidden'), 'senha certa executa a ação pedida (janela some)');
+  assert.ok(t.maint.classList.contains('hidden'), 'a ação roda direto, sem pedir senha (janela some)');
   assert.deepEqual(t.errors, []);
 });
 
@@ -226,8 +217,6 @@ test('painel inicial: aviso de versão nova, barra de progresso e botão Atualiz
   const bar = t.maint.all((n) => n.tagName === 'PROGRESS')[0];
   assert.ok(bar, 'barra de download presente');
   await t.click(/Atualizar para v/);
-  for (const i of t.inputs()) i.value = 'senha-123';
-  await t.click(/Definir e entrar/);
   assert.deepEqual(calls, ['install']);
   assert.ok(t.maint.innerText.includes('Instalando v0.1.5'));
   assert.deepEqual(t.errors, []);
@@ -253,15 +242,13 @@ test('conexão: botão Colar código copiado lê a área de transferência e apl
   const t = setup({ applyPair: async (_t, c) => (applied.push(c), { ok: true, baseUrl: 'https://x/b', keyId: 'K', pollSeconds: 60, screens: ['loja'], screensError: '' }) });
   await t.tick();
   await t.click(/Conexão com o admin/);
-  for (const i of t.inputs()) i.value = 'senha-123';
-  await t.click(/Definir e entrar/);
   await t.click(/Colar código copiado/);
   assert.deepEqual(applied, ['RM1-abcdefghijkl.00000000']);
   assert.match(t.maint.innerText, /Código aceito/);
   assert.deepEqual(t.errors, []);
 });
 
-test('janela: botões Minimizar e Janela/Tela cheia pedem a senha, alternam o modo e o rótulo muda', async () => {
+test('janela: botões Minimizar e Janela/Tela cheia alternam o modo e o rótulo muda', async () => {
   const actions = [];
   const t = setup({
     action: async (_t, a) => (actions.push(a), { ok: true, message: 'feito' }),
@@ -269,8 +256,6 @@ test('janela: botões Minimizar e Janela/Tela cheia pedem a senha, alternam o mo
   await t.tick();
   assert.match(t.maint.innerText, /Janela/);
   await t.click(/^\s*Janela\s*$/);
-  for (const i of t.inputs()) i.value = 'senha-123';
-  await t.click(/Definir e entrar/);
   assert.deepEqual(actions, ['window-toggle']);
   assert.match(t.maint.innerText, /Minimizar/);
   assert.deepEqual(t.errors, []);
@@ -283,4 +268,14 @@ test('toque: alvos de ação são botões grandes com descrição e o toque adia
   assert.ok(tiles.length >= 5);
   for (const b of tiles) assert.ok(b.children.length === 2, 'título + descrição');
   assert.ok(t.maint.all((n) => n.classSet.has('bigstart')).length === 1);
+});
+
+test('sem senha: nenhuma tela de login aparece em nenhum botão', async () => {
+  const t = setup();
+  await t.tick();
+  for (const re of [/Exibição/, /Conexão com o admin/, /Mais opções/]) {
+    await t.click(re);
+    assert.ok(!/senha|Entrar/i.test(t.maint.innerText), `${re} não pode pedir senha`);
+    await t.click(/Voltar/);
+  }
 });

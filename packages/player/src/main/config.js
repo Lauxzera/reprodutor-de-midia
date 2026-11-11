@@ -41,6 +41,9 @@ function loadConfig(dataDir) {
     keyId: typeof raw.keyId === 'string' ? raw.keyId.trim() : '',
     secretKey: typeof raw.secretKey === 'string' ? raw.secretKey.trim() : '',
     region: typeof raw.region === 'string' ? raw.region.trim() : '',
+    // Opcional: chave que só grava em status/ (relatório de versão e estado para o painel do admin).
+    statusKeyId: typeof raw.statusKeyId === 'string' ? raw.statusKeyId.trim() : '',
+    statusSecret: typeof raw.statusSecret === 'string' ? raw.statusSecret.trim() : '',
   };
   return { ...cfg, file, configured: Boolean(cfg.baseUrl && cfg.screenId) };
 }

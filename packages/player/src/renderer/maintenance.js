@@ -1,6 +1,6 @@
 'use strict';
 
-// Menu de manutenção (Ctrl+Shift+M), protegido por senha. Todas as ações são revalidadas no processo principal.
+// Menu de manutenção (Ctrl+Shift+M), sem senha. Todas as ações são revalidadas no processo principal.
 (() => {
   const api = window.playerApi;
   const root = document.getElementById('maint');
@@ -19,7 +19,7 @@
 
   const AUTO_START_SECS = 60; // sem mexer no painel, a reprodução começa sozinha depois disso
   let view = ''; // 'home' enquanto a tela inicial está aberta
-  let afterLogin = null; // o que fazer depois de digitar a senha
+  let afterLogin = null; // o que fazer depois de renovar a sessão
   let countdownTimer = null;
   let secsLeft = AUTO_START_SECS;
   let countdownEl = null;
@@ -53,7 +53,7 @@
     hold(false);
   }
 
-  // Abre a tela inicial (mídias, conexão, atualização e configurações). A senha só é pedida ao mexer em algo.
+  // Abre a tela inicial (mídias, conexão, atualização e configurações).
   function open() {
     if (isOpen()) return;
     document.body.classList.add('maint-open');
@@ -70,59 +70,17 @@
   const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
   const STATE_LABEL = { online: 'Conectado', idle: 'Conectado', offline: 'Sem conexão', error: 'Com erro', downloading: 'Baixando mídias', checking: 'Verificando' };
 
-  // Pede a senha (se ainda não houver sessão) e depois roda `next`.
-  // `rerender`: depois da senha, redesenha o painel antes de rodar a ação (a ação escreve mensagens/progresso nele).
+  // Sem senha: o painel abre uma sessão local sozinho e roda a ação.
+  // `rerender`: redesenha o painel antes da ação (ela escreve mensagens/progresso nele).
   const needAuth = (next, rerender = false) => () => (token ? next() : showLogin('', rerender ? async () => (await showHome(), next()) : next));
 
+  // Mantido por compatibilidade com as chamadas de 'Sessão expirada': renova a sessão em silêncio.
   async function showLogin(message = '', next = null) {
-    if (next) afterLogin = next;
-    view = 'login';
-    stopCountdown();
-    const st = await api.maint.status();
-    const first = !st.hasPassword;
-    const pass = el('input', { type: 'password', placeholder: first ? 'Nova senha (mín. 4 caracteres)' : 'Senha de manutenção', autocomplete: 'off' });
-    const confirm = first ? el('input', { type: 'password', placeholder: 'Repita a senha', autocomplete: 'off' }) : null;
-    const msg = el('div', { class: 'msg' }, message || (st.lockedMs ? `Bloqueado por ${secs(st.lockedMs)} s` : ''));
-
-    const submit = async () => {
-      msg.textContent = '';
-      if (first) {
-        if (pass.value !== confirm.value) {
-          msg.textContent = 'As senhas não conferem';
-          return;
-        }
-        const r = await api.maint.setPassword(pass.value);
-        if (!r.ok) {
-          msg.textContent = r.error;
-          return;
-        }
-      }
-      const auth = await api.maint.auth(pass.value);
-      if (!auth.ok) {
-        msg.textContent = auth.retryAfterMs ? `${auth.error}. Tente de novo em ${secs(auth.retryAfterMs)} s` : auth.error;
-        pass.value = '';
-        pass.focus();
-        return;
-      }
-      token = auth.token;
-      const go = afterLogin || showHome;
-      afterLogin = null;
-      go();
-    };
-
-    box(
-      el('h1', {}, 'Manutenção'),
-      el('p', {}, first ? 'Defina a senha de manutenção deste player.' : 'Digite a senha para continuar.'),
-      pass,
-      confirm,
-      msg,
-      el('button', { class: 'linkbtn', onclick: () => [pass, confirm].forEach((i) => i && (i.type = i.type === 'password' ? 'text' : 'password')) }, 'Mostrar/ocultar senha'),
-      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: submit }, first ? 'Definir e entrar' : 'Entrar'), el('button', { onclick: () => ((afterLogin = null), showHome()) }, 'Cancelar')),
-    );
-    for (const input of [pass, confirm]) {
-      if (input) input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
-    }
-    pass.focus();
+    const r = await api.maint.session();
+    token = r.token;
+    const go = next || afterLogin || showHome;
+    afterLogin = null;
+    go();
   }
 
   async function showHome(message) {
@@ -141,7 +99,7 @@
     const run = (action, confirmText) => async () => {
       if (confirmText && !window.confirm(confirmText)) return;
       const r = await api.maint.action(token, action);
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       if (action === 'minimize' || action === 'windows-settings') {
         if (r.ok) return close();
       }
@@ -151,7 +109,7 @@
     const checkUpdates = async () => {
       setMsg('Verificando atualizações…');
       const r = await api.maint.updateCheck(token);
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       showHome(r.ok ? (r.info.newer ? `Nova versão disponível: v${r.info.latest}.` : `Já está na versão mais recente (v${r.info.current}).`) : `Não consegui verificar: ${r.error}`);
     };
 
@@ -162,7 +120,7 @@
       busy = true;
       const r = await api.maint.updateInstall(token);
       if (!r.ok) busy = false;
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       setMsg(r.ok ? r.message : r.error);
     };
 
@@ -178,6 +136,7 @@
     });
 
     const connLabel = !s.configured ? 'Não configurado' : STATE_LABEL[st.state] || st.state || '—';
+    const rep = s.report || {};
     const connClass = !s.configured || st.state === 'error' || st.state === 'offline' ? 'pill warn' : 'pill ok';
     const hasUp = up && up.newer;
     const inWindow = s.windowMode === 'window';
@@ -201,6 +160,7 @@
           { class: 'info' },
           el('div', { class: connClass }, 'Conexão com o admin', el('b', {}, connLabel), st.message && st.state === 'error' ? st.message : `Tela: ${s.screenId || '—'} · revisão ${s.revision ?? '—'}`),
           el('div', { class: 'pill' }, 'Última sincronização', el('b', {}, st.lastSyncAt ? new Date(st.lastSyncAt).toLocaleString('pt-BR') : '—'), `${s.playableCount}/${s.itemCount} mídias no disco`),
+          el('div', { class: rep.enabled && !rep.error ? 'pill ok' : 'pill' }, 'Relatório ao admin', el('b', {}, rep.enabled ? (rep.lastAt ? 'Enviando' : 'Aguardando') : 'Desligado'), rep.enabled ? (rep.error ? `falha: ${rep.error}` : rep.lastAt ? `último ${new Date(rep.lastAt).toLocaleTimeString('pt-BR')}` : 'primeiro envio em instantes') : 'sem chave de status no código de pareamento'),
           el('div', { class: hasUp ? 'pill warn' : 'pill' }, 'Versão', el('b', {}, `v${s.version || (up && up.current) || '—'}`), hasUp ? `v${up.latest} disponível` : 'Sem atualização pendente'),
         ),
         el('button', { class: 'bigstart', onclick: close }, el('b', {}, 'Iniciar reprodução'), el('span', {}, 'Mostra a programação na tela')),
@@ -251,7 +211,7 @@
     const msg = el('div', { class: 'msg' });
     const save = async () => {
       const r = await api.maint.setDisplay(token, { fit: fit.value, rotate: Number(rotate.value), volume: Number(volume.value) });
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.', showDisplay);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.', showDisplay);
       msg.textContent = r.ok ? r.message : r.error;
     };
     box(
@@ -269,7 +229,7 @@
     view = 'sub';
     stopCountdown();
     const cur = await api.maint.getConfig(token);
-    if (!cur.ok) return showLogin('Sessão expirada. Digite a senha novamente.');
+    if (!cur.ok) return showLogin('Sessão renovada. Tente de novo.');
 
     const code = el('textarea', { rows: '3', placeholder: 'Cole aqui o código de pareamento (começa com RM1-). Ele está na aba Publicar do painel.' });
     const status = el('div', { class: 'msg' });
@@ -296,7 +256,7 @@
 
     const refreshScreens = async () => {
       const r = await api.maint.listScreens(token);
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       if (r.ok) {
         fillScreens(r.screens);
         status.textContent = r.screens.length ? `${r.screens.length} tela(s) publicada(s).` : 'Nenhuma tela publicada ainda: publique pelo painel e clique em "Atualizar lista".';
@@ -310,7 +270,7 @@
       const text = code.value.trim();
       if (text.length < 12) return;
       const r = await api.maint.applyPair(token, text);
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       if (!r.ok) {
         paired = false;
         status.textContent = r.error;
@@ -327,7 +287,7 @@
     code.addEventListener('input', applyCode);
     const pasteCode = async () => {
       const r = await api.maint.paste(token);
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       if (!r.ok) {
         status.textContent = r.error;
         return;
@@ -358,7 +318,7 @@
         ? { usePair: true, screenId: screenId.value, pollSeconds: Number(poll.value) }
         : { baseUrl: baseUrl.value, screenId: screenId.value, pollSeconds: Number(poll.value), keyId: keyId.value, secretKey: secret.value };
       const r = await api.maint.saveConfig(token, payload);
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       msg.textContent = r.ok ? r.message : r.error;
     };
 
@@ -382,7 +342,7 @@
     view = 'sub';
     stopCountdown();
     const info = await api.maint.info(token);
-    if (!info.ok) return showLogin('Sessão expirada. Digite a senha novamente.');
+    if (!info.ok) return showLogin('Sessão renovada. Tente de novo.');
     const s = info.snapshot;
     const st = s.status || {};
     const msg = el('div', { class: 'msg' }, message);
@@ -390,7 +350,7 @@
     const run = (action, confirmText) => async () => {
       if (confirmText && !window.confirm(confirmText)) return;
       const r = await api.maint.action(token, action);
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       if (action === 'sync') return showMenu(r.message);
       msg.textContent = r.ok ? r.message : r.error;
     };
@@ -399,21 +359,21 @@
     const checkUpdates = async () => {
       msg.textContent = 'Verificando atualizações…';
       const r = await api.maint.updateCheck(token);
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       showMenu(r.ok ? (r.info.newer ? `Nova versão disponível: v${r.info.latest}.` : `Já está na versão mais recente (v${r.info.current}).`) : `Não consegui verificar: ${r.error}`);
     };
     const doUpdate = async () => {
       if (!window.confirm(`Atualizar para a v${up.latest}? O player baixa, fecha, instala e reabre sozinho (cerca de um minuto; a TV fica sem imagem nesse tempo).`)) return;
       msg.textContent = 'Baixando a atualização…';
       const r = await api.maint.updateInstall(token);
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       msg.textContent = r.ok ? r.message : r.error;
     };
 
     // Minimizar: fecha o menu (e a sessão) e esconde a janela; o player volta sozinho depois de alguns minutos.
     const minimize = (action) => async () => {
       const r = await api.maint.action(token, action);
-      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       if (r.ok) close();
       else msg.textContent = r.error;
     };

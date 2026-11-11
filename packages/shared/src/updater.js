@@ -13,18 +13,7 @@ const { spawn } = require('node:child_process');
 const DEFAULT_REPO = 'Lauxzera/reprodutor-de-midia';
 const PREFIX = { player: 'ReprodutorPlayer-Setup-', painel: 'ReprodutorPainel-Setup-' };
 
-const parseVersion = (v) => String(v || '0').replace(/^v/i, '').split('-')[0].split('.').map((n) => parseInt(n, 10) || 0);
-
-/** >0 se a > b. */
-function compareVersions(a, b) {
-  const x = parseVersion(a);
-  const y = parseVersion(b);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const d = (x[i] || 0) - (y[i] || 0);
-    if (d) return d;
-  }
-  return 0;
-}
+const { compareVersions } = require('./version');
 
 /**
  * Consulta o último Release. Devolve { current, latest, newer, asset, sumsUrl, notes, releaseUrl }.
