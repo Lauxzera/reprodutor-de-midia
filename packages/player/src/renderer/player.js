@@ -21,10 +21,34 @@ function applyUpdateBadge() {
   if (c) c.classList.toggle('has-update', Boolean(state && state.update && state.update.newer));
 }
 
-function applySettings(s) {
-  document.documentElement.style.setProperty('--fit', s.fit);
-  document.documentElement.style.setProperty('--t', `${s.transitionMs}ms`);
+let held = false; // painel aberto: o som da reprodução fica mudo por baixo
+
+const volumeOf = () => (state && state.display ? state.display.volume : 100) / 100;
+const wantMuted = () => held || Boolean(state && state.settings.muted) || volumeOf() === 0;
+
+function applyAudio() {
+  if (currentEl && currentEl.tagName === 'VIDEO') {
+    currentEl.muted = wantMuted();
+    currentEl.volume = volumeOf();
+  }
 }
+
+// Exibição = playlist (ajuste da imagem) + ajustes locais do player (ajuste, rotação, volume).
+function applySettings(st) {
+  const s = st.settings;
+  const d = st.display || { fit: 'auto', rotate: 0, volume: 100 };
+  document.documentElement.style.setProperty('--fit', d.fit === 'auto' ? s.fit : d.fit);
+  document.documentElement.style.setProperty('--t', `${s.transitionMs}ms`);
+  stage.className = d.rotate ? `rot${d.rotate}` : '';
+  applyAudio();
+}
+
+window.__hold = (h) => {
+  held = Boolean(h);
+  applyAudio();
+};
+const problems = new Map(); // id -> motivo pelo qual o item não toca (o painel mostra)
+window.__problems = problems;
 
 function renderDebug() {
   if (!state) return;
@@ -101,7 +125,8 @@ async function loadImage(item) {
 
 function loadVideo(item) {
   const v = document.createElement('video');
-  v.muted = state.settings.muted;
+  v.muted = wantMuted();
+  v.volume = volumeOf();
   v.playsInline = true;
   v.preload = 'auto';
   v.src = item.src;
@@ -178,7 +203,9 @@ async function loop() {
     try {
       await play(item);
       playProblem = null;
+      problems.delete(item.id);
     } catch (e) {
+      problems.set(item.id, e.message);
       console.warn(`Pulando "${item.name || item.id}": ${e.message}`);
       if (!reported.has(item.id)) {
         reported.add(item.id);
@@ -193,11 +220,11 @@ async function loop() {
 
 async function boot() {
   state = await api.getState();
-  applySettings(state.settings);
+  applySettings(state);
   applyUpdateBadge();
   api.onChanged((s) => {
     state = s;
-    applySettings(s.settings);
+    applySettings(s);
     applyUpdateBadge();
     renderDebug();
   });

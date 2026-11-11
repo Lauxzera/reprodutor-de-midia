@@ -89,6 +89,14 @@ function main() {
     needsScreen: Boolean(config.baseUrl && !config.screenId),
     screenChoices,
     configFile: config.file,
+    version: app.getVersion(),
+    display: config.display,
+    media: engine.manifest
+      ? engine.manifest.items.map((it) => {
+          const present = engine._hasFile(it);
+          return { id: it.id, type: it.type, name: it.name || it.id, size: it.size || 0, durationSec: it.durationSec || 0, present, src: present && it.type === 'image' ? pathToFileURL(engine.mediaPath(it)).href : '' };
+        })
+      : [],
     dataDir,
     screenId: config.screenId,
     settings: engine.manifest ? engine.manifest.settings : { fit: 'contain', transitionMs: 600, muted: true },
@@ -255,6 +263,28 @@ function main() {
       log(`Atualização falhou: ${e.message}`);
       return { ok: false, error: `Atualização falhou: ${e.message}` };
     }
+  });
+
+  // Exibição local (ajuste da imagem, rotação, volume): vale na hora, sem reiniciar.
+  ipcMain.handle('maint:set-display', (_e, token, input) => {
+    if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
+    const fit = String((input && input.fit) || 'auto');
+    const rotate = Number(input && input.rotate);
+    const volume = Math.round(Number(input && input.volume));
+    if (!['auto', 'contain', 'cover', 'fill'].includes(fit)) return { ok: false, error: 'Ajuste de imagem inválido' };
+    if (![0, 90, 180, 270].includes(rotate)) return { ok: false, error: 'Rotação inválida' };
+    if (!Number.isFinite(volume) || volume < 0 || volume > 100) return { ok: false, error: 'Volume deve ficar entre 0 e 100' };
+    let current = {};
+    try {
+      current = JSON.parse(fs.readFileSync(config.file, 'utf8'));
+    } catch {
+      /* config novo */
+    }
+    fs.writeFileSync(config.file, JSON.stringify({ ...current, display: { fit, rotate, volume } }, null, 2));
+    config.display = { fit, rotate, volume };
+    log(`Exibição alterada: ajuste ${fit}, rotação ${rotate}°, volume ${volume}`);
+    notify();
+    return { ok: true, message: 'Exibição salva e aplicada.' };
   });
 
   ipcMain.handle('maint:get-config', (_e, token) => {

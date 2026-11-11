@@ -17,26 +17,67 @@
     return node;
   }
 
+  const AUTO_START_SECS = 60; // sem mexer no painel, a reprodução começa sozinha depois disso
+  let view = ''; // 'home' enquanto a tela inicial está aberta
+  let afterLogin = null; // o que fazer depois de digitar a senha
+  let countdownTimer = null;
+  let secsLeft = AUTO_START_SECS;
+  let countdownEl = null;
+  let progressEl = null;
+  let homeMsg = '';
+  let msgEl = null;
+  const setMsg = (t) => {
+    homeMsg = t;
+    if (msgEl) msgEl.textContent = t;
+  };
+  let busy = false; // baixando a atualização: não redesenha a tela
+
   const isOpen = () => !root.classList.contains('hidden');
+  const hold = (h) => window.__hold && window.__hold(h);
+
+  function stopCountdown() {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+    countdownEl = null;
+  }
 
   function close() {
     token = null;
+    view = '';
+    afterLogin = null;
+    progressEl = null;
+    stopCountdown();
     root.classList.add('hidden');
     document.body.classList.remove('maint-open');
     root.replaceChildren();
+    hold(false);
   }
 
+  // Abre a tela inicial (mídias, conexão, atualização e configurações). A senha só é pedida ao mexer em algo.
   function open() {
     if (isOpen()) return;
     document.body.classList.add('maint-open');
     root.classList.remove('hidden');
-    showLogin();
+    hold(true);
+    homeMsg = '';
+    secsLeft = AUTO_START_SECS;
+    busy = false;
+    showHome();
   }
 
   const box = (...children) => root.replaceChildren(el('div', { class: 'box' }, ...children));
   const secs = (ms) => Math.ceil(ms / 1000);
+  const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
+  const STATE_LABEL = { online: 'Conectado', idle: 'Conectado', offline: 'Sem conexão', error: 'Com erro', downloading: 'Baixando mídias', checking: 'Verificando' };
 
-  async function showLogin(message = '') {
+  // Pede a senha (se ainda não houver sessão) e depois roda `next`.
+  // `rerender`: depois da senha, redesenha o painel antes de rodar a ação (a ação escreve mensagens/progresso nele).
+  const needAuth = (next, rerender = false) => () => (token ? next() : showLogin('', rerender ? async () => (await showHome(), next()) : next));
+
+  async function showLogin(message = '', next = null) {
+    if (next) afterLogin = next;
+    view = 'login';
+    stopCountdown();
     const st = await api.maint.status();
     const first = !st.hasPassword;
     const pass = el('input', { type: 'password', placeholder: first ? 'Nova senha (mín. 4 caracteres)' : 'Senha de manutenção', autocomplete: 'off' });
@@ -64,7 +105,9 @@
         return;
       }
       token = auth.token;
-      showMenu();
+      const go = afterLogin || showHome;
+      afterLogin = null;
+      go();
     };
 
     box(
@@ -73,7 +116,7 @@
       pass,
       confirm,
       msg,
-      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: submit }, first ? 'Definir e entrar' : 'Entrar'), el('button', { onclick: close }, 'Cancelar')),
+      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: submit }, first ? 'Definir e entrar' : 'Entrar'), el('button', { onclick: () => ((afterLogin = null), showHome()) }, 'Cancelar')),
     );
     for (const input of [pass, confirm]) {
       if (input) input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
@@ -81,7 +124,142 @@
     pass.focus();
   }
 
+  async function showHome(message) {
+    if (message !== undefined) homeMsg = message;
+    view = 'home';
+    stopCountdown();
+    progressEl = null;
+    const s = await api.getState();
+    if (view !== 'home') return; // o usuário já foi para outra tela
+    const st = s.status || {};
+    const up = s.update;
+    const problems = window.__problems || new Map();
+    const msg = el('div', { class: 'msg' }, homeMsg);
+    msgEl = msg;
+
+    const run = (action, confirmText) => async () => {
+      if (confirmText && !window.confirm(confirmText)) return;
+      const r = await api.maint.action(token, action);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (action === 'minimize' || action === 'windows-settings') {
+        if (r.ok) return close();
+      }
+      showHome(r.ok ? r.message : r.error);
+    };
+
+    const checkUpdates = async () => {
+      setMsg('Verificando atualizações…');
+      const r = await api.maint.updateCheck(token);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      showHome(r.ok ? (r.info.newer ? `Nova versão disponível: v${r.info.latest}.` : `Já está na versão mais recente (v${r.info.current}).`) : `Não consegui verificar: ${r.error}`);
+    };
+
+    const doUpdate = async () => {
+      if (!window.confirm(`Atualizar para a v${up.latest}? O player baixa, fecha, instala e reabre sozinho (cerca de um minuto; a TV fica sem imagem nesse tempo).`)) return;
+      setMsg('Baixando a atualização… 0%');
+      if (progressEl) progressEl.value = 0;
+      busy = true;
+      const r = await api.maint.updateInstall(token);
+      if (!r.ok) busy = false;
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      setMsg(r.ok ? r.message : r.error);
+    };
+
+    const cards = (s.media || []).map((m) => {
+      const why = problems.get(m.id);
+      const thumb = m.src ? el('img', { src: m.src, alt: '' }) : m.type === 'video' ? 'VÍDEO' : m.present ? 'IMAGEM' : 'baixando…';
+      return el(
+        'div',
+        { class: why ? 'card bad' : 'card' },
+        el('div', { class: 'thumb' }, thumb),
+        el('div', { class: 'meta' }, el('b', {}, m.name), `${m.type === 'video' ? 'vídeo' : 'imagem'} · ${fmtSize(m.size)}${m.type === 'image' && m.durationSec ? ` · ${m.durationSec} s` : ''}`, !m.present ? el('div', {}, 'ainda não baixado') : null, why ? el('div', { class: 'err' }, why.includes('HEVC') ? 'HEVC: não reproduz; converta para H.264' : why) : null),
+      );
+    });
+
+    const connLabel = !s.configured ? 'Não configurado' : STATE_LABEL[st.state] || st.state || '—';
+    const connClass = !s.configured || st.state === 'error' || st.state === 'offline' ? 'pill warn' : 'pill ok';
+    const hasUp = up && up.newer;
+    if (hasUp) progressEl = el('progress', { max: '100', value: '0' });
+    countdownEl = el('div', { class: 'msg' });
+
+    root.replaceChildren(
+      el(
+        'div',
+        { class: 'box wide' },
+        el('h1', {}, 'Reprodutor Player'),
+        el(
+          'div',
+          { class: 'info' },
+          el('div', { class: connClass }, 'Conexão com o admin', el('b', {}, connLabel), st.message && st.state === 'error' ? st.message : `Tela: ${s.screenId || '—'} · revisão ${s.revision ?? '—'}`),
+          el('div', { class: 'pill' }, 'Última sincronização', el('b', {}, st.lastSyncAt ? new Date(st.lastSyncAt).toLocaleString('pt-BR') : '—'), `${s.playableCount}/${s.itemCount} mídias no disco`),
+          el('div', { class: hasUp ? 'pill warn' : 'pill' }, 'Versão', el('b', {}, `v${s.version || (up && up.current) || '—'}`), hasUp ? `v${up.latest} disponível` : 'Sem atualização pendente'),
+        ),
+        el('div', {}, `Mídias baixadas (${cards.length})`),
+        cards.length ? el('div', { class: 'grid' }, ...cards) : el('p', {}, s.configured ? 'Nenhuma mídia publicada ainda.' : 'Player não configurado. Clique em "Conexão com o admin" e cole o código de pareamento.'),
+        hasUp ? el('div', {}, progressEl) : null,
+        msg,
+        el(
+          'div',
+          { class: 'row' },
+          el('button', { class: 'primary', onclick: close }, 'Iniciar reprodução'),
+          hasUp ? el('button', { class: 'primary', onclick: needAuth(doUpdate, true) }, `Atualizar para v${up.latest}`) : null,
+          el('button', { onclick: needAuth(run('sync'), true) }, 'Sincronizar agora'),
+          el('button', { onclick: needAuth(showDisplay) }, 'Exibição'),
+          el('button', { onclick: needAuth(showConfig) }, 'Conexão com o admin'),
+          el('button', { onclick: needAuth(checkUpdates, true) }, 'Verificar atualizações'),
+          el('button', { onclick: needAuth(run('minimize'), true) }, 'Minimizar o player'),
+          el('button', { onclick: needAuth(run('windows-settings'), true) }, 'Configurações do Windows'),
+          el('button', { onclick: needAuth(() => showMenu()) }, 'Mais opções'),
+        ),
+        countdownEl,
+      ),
+    );
+
+    // Sem ninguém mexendo, a reprodução começa sozinha (a TV não fica parada no painel depois de um reinício).
+    if (!token && s.playableCount > 0) {
+      const label = () => (countdownEl.textContent = `A reprodução começa sozinha em ${secsLeft} s se ninguém mexer aqui.`);
+      label();
+      countdownTimer = setInterval(() => {
+        secsLeft -= 1;
+        if (secsLeft <= 0) return close();
+        if (countdownEl) label();
+      }, 1000);
+    }
+  }
+
+  async function showDisplay() {
+    view = 'sub';
+    stopCountdown();
+    const s = await api.getState();
+    const d = s.display || { fit: 'auto', rotate: 0, volume: 100 };
+    const fit = el('select', {}, el('option', { value: 'auto' }, 'Seguir a playlist'), el('option', { value: 'contain' }, 'Mostrar inteira (barras pretas)'), el('option', { value: 'cover' }, 'Preencher a tela (corta as bordas)'), el('option', { value: 'fill' }, 'Esticar'));
+    fit.value = d.fit;
+    const rotate = el('select', {}, ...[0, 90, 180, 270].map((g) => el('option', { value: String(g) }, `${g}°`)));
+    rotate.value = String(d.rotate);
+    const volume = el('input', { type: 'range', min: '0', max: '100', step: '5' });
+    volume.value = String(d.volume);
+    const volLabel = el('span', {}, `${d.volume}%`);
+    volume.addEventListener('input', () => (volLabel.textContent = `${volume.value}%`));
+    const msg = el('div', { class: 'msg' });
+    const save = async () => {
+      const r = await api.maint.setDisplay(token, { fit: fit.value, rotate: Number(rotate.value), volume: Number(volume.value) });
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.', showDisplay);
+      msg.textContent = r.ok ? r.message : r.error;
+    };
+    box(
+      el('h1', {}, 'Exibição'),
+      el('p', {}, 'Vale só para este player e se aplica na hora.'),
+      el('label', {}, 'Ajuste da imagem', fit),
+      el('label', {}, 'Rotação da tela', rotate),
+      el('label', {}, 'Volume', volume, volLabel),
+      msg,
+      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: save }, 'Salvar'), el('button', { onclick: () => showHome('') }, 'Voltar')),
+    );
+  }
+
   async function showConfig() {
+    view = 'sub';
+    stopCountdown();
     const cur = await api.maint.getConfig(token);
     if (!cur.ok) return showLogin('Sessão expirada. Digite a senha novamente.');
 
@@ -175,12 +353,14 @@
       el('label', {}, 'Consultar a cada (segundos)', poll),
       el('details', {}, el('summary', {}, 'Avançado: preencher à mão'), el('label', {}, 'URL do bucket', baseUrl), el('label', {}, 'keyID de leitura', keyId), el('label', {}, 'applicationKey de leitura', secret), el('label', {}, 'ID da tela', screenId)),
       msg,
-      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: save }, 'Salvar e reiniciar'), el('button', { onclick: () => showMenu() }, 'Voltar')),
+      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: save }, 'Salvar e reiniciar'), el('button', { onclick: () => showHome('') }, 'Voltar')),
     );
     code.focus();
   }
 
   async function showMenu(message = '') {
+    view = 'sub';
+    stopCountdown();
     const info = await api.maint.info(token);
     if (!info.ok) return showLogin('Sessão expirada. Digite a senha novamente.');
     const s = info.snapshot;
@@ -240,12 +420,21 @@
         el('button', { onclick: run('open-folder') }, 'Abrir pasta de dados'),
         el('button', { onclick: run('restart', 'Reiniciar o player?') }, 'Reiniciar'),
         el('button', { class: 'danger', onclick: run('quit', 'Encerrar o player? A TV ficará sem conteúdo.') }, 'Sair do player'),
+        el('button', { onclick: () => showHome('') }, 'Voltar ao painel'),
         el('button', { onclick: close }, 'Fechar'),
       ),
     );
   }
 
+  // Mexer no painel adia o início automático da reprodução.
+  const bump = () => {
+    secsLeft = AUTO_START_SECS;
+  };
+  window.addEventListener('mousemove', bump);
+  window.addEventListener('click', bump);
+
   window.addEventListener('keydown', (e) => {
+    bump();
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm') {
       e.preventDefault();
       isOpen() ? close() : open();
@@ -269,8 +458,15 @@
     api.onUpdateProgress((p) => {
       const m = root.querySelector('.msg');
       if (m) m.textContent = `Baixando a atualização… ${Math.round(p * 100)}%`;
+      if (progressEl) progressEl.value = Math.round(p * 100);
     });
   }
+
+  // Mudanças do sync (mídia baixada, status) atualizam a tela inicial enquanto ela está aberta.
+  if (api.onChanged) api.onChanged(() => view === 'home' && !busy && showHome());
+
+  // Ao ligar, o Player abre direto no painel; a reprodução começa sozinha em 60 s ou ao clicar em "Iniciar reprodução".
+  open();
 
   window.__openMaint = open; // usado nos testes automatizados
 })();

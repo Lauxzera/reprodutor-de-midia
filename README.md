@@ -24,7 +24,7 @@ Para publicar uma versão nova: `powershell -ExecutionPolicy Bypass -File tools\
 
 A partir da versão 0.1.4, o Player e o Painel de mesa verificam sozinhos se há um Release novo no GitHub (ao abrir e a cada 6 h):
 
-- **Player:** o botão ⚙ do canto superior direito ganha um pontinho laranja e fica um pouco mais visível. Clique, digite a senha de manutenção e escolha **Atualizar para vX**. O player baixa o instalador, confere o SHA-256 publicado no Release, fecha, instala e **reabre sozinho** (cerca de um minuto; a TV fica sem imagem nesse tempo). *Verificar atualizações* força a consulta.
+- **Player:** o botão ⚙ do canto inferior direito ganha um pontinho laranja e fica um pouco mais visível. Clique para abrir o painel e use **Atualizar para vX** (pede a senha de manutenção; a barra mostra o download). O player baixa o instalador, confere o SHA-256 publicado no Release, fecha, instala e **reabre sozinho** (cerca de um minuto; a TV fica sem imagem nesse tempo). *Verificar atualizações* força a consulta.
 - **Painel de mesa:** *Configurações* > **Atualizações**. O painel web já está sempre na versão mais recente.
 - Sem internet, a verificação falha em silêncio e tenta de novo depois. Para desligar no Player: `"updates": false` no `config.json`.
 - O instalador só é executado se o hash bater com o `SHA256SUMS.txt` do mesmo Release. Os instaladores não são assinados digitalmente, então a garantia é de integridade, não de autoria.
@@ -83,8 +83,8 @@ Passo a passo e verificação com as suas credenciais: [docs/B2.md](docs/B2.md) 
 | Atalho | Ação |
 |---|---|
 | `Ctrl+Shift+D` | mostra/oculta o painel de status (revisão, sincronização, itens no disco) |
-| `Ctrl+Shift+M` | menu de manutenção (pede senha): sincronizar agora, configurar conexão, minimizar, configurações do Windows, abrir pasta de dados, reiniciar, sair, ver o log |
-| botão ⚙ no canto superior direito | sempre presente, com 10% de opacidade (quase invisível sobre o vídeo); fica nítido ao passar o mouse; abre o mesmo menu de manutenção |
+| `Ctrl+Shift+M` | painel inicial (a senha só é pedida ao mexer em algo): sincronizar agora, configurar conexão, minimizar, configurações do Windows, abrir pasta de dados, reiniciar, sair, ver o log |
+| botão ⚙ no canto inferior direito | sempre presente, com 10% de opacidade (quase invisível sobre o vídeo); fica nítido ao passar o mouse; volta ao painel inicial |
 | `Ctrl+Shift+Q` | encerra o player, **só em modo janela** (`PLAYER_WINDOWED=1`, para desenvolvimento) |
 
 **Senha de manutenção:** no primeiro `Ctrl+Shift+M` o player pede para definir a senha; faça isso na instalação. Ela fica como hash em `security.json` na pasta de dados (apagar esse arquivo no PC redefine a senha). Após 5 erros, bloqueia por 30 s. Em tela cheia, Alt+F4 não fecha o player. **Minimizar** (menu de manutenção) esconde a janela para você usar o Windows; ela volta sozinha à tela cheia em 10 min, ou antes se você clicar no ícone na barra de tarefas. *Configurações do Windows* minimiza e abre o aplicativo Configurações.
@@ -132,3 +132,5 @@ release/          instaladores gerados (não versionar)
 - Os instaladores não são assinados: o Windows SmartScreen avisa na primeira execução.
 - Não há atualização automática: para atualizar, instale a versão nova por cima (dados preservados).
 - O B2 gratuito tem cotas de armazenamento e de download; confira no site.
+
+**Painel inicial (v0.1.5):** o Player abre mostrando o painel com a conexão com o admin, a última sincronização, a versão, as mídias baixadas (com aviso das que não tocam, como HEVC) e os botões *Iniciar reprodução*, *Atualizar* (com barra de download), *Exibição* (ajuste da imagem, rotação, volume), *Conexão com o admin*, *Minimizar* e *Configurações do Windows*. Sem ninguém mexer, a reprodução começa sozinha em 60 s. Durante a reprodução, o botão ⚙ do canto inferior direito volta a este painel.

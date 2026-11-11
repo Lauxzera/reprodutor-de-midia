@@ -24,7 +24,14 @@ function loadConfig(dataDir) {
   } catch {
     /* config corrompido: trata como vazio */
   }
+  const d = raw.display && typeof raw.display === 'object' ? raw.display : {};
   const cfg = {
+    // Exibição local deste player: fit 'auto' segue a playlist; rotação em graus; volume de 0 a 100.
+    display: {
+      fit: ['auto', 'contain', 'cover', 'fill'].includes(d.fit) ? d.fit : 'auto',
+      rotate: [0, 90, 180, 270].includes(Number(d.rotate)) ? Number(d.rotate) : 0,
+      volume: Number.isFinite(Number(d.volume)) ? Math.min(100, Math.max(0, Math.round(Number(d.volume)))) : 100,
+    },
     baseUrl: typeof raw.baseUrl === 'string' ? raw.baseUrl.trim() : '',
     screenId: typeof raw.screenId === 'string' ? raw.screenId.trim() : '',
     pollSeconds: Number.isFinite(raw.pollSeconds) ? raw.pollSeconds : 60,
