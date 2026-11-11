@@ -116,6 +116,7 @@
       pass,
       confirm,
       msg,
+      el('button', { class: 'linkbtn', onclick: () => [pass, confirm].forEach((i) => i && (i.type = i.type === 'password' ? 'text' : 'password')) }, 'Mostrar/ocultar senha'),
       el('div', { class: 'row' }, el('button', { class: 'primary', onclick: submit }, first ? 'Definir e entrar' : 'Entrar'), el('button', { onclick: () => ((afterLogin = null), showHome()) }, 'Cancelar')),
     );
     for (const input of [pass, confirm]) {
@@ -179,14 +180,22 @@
     const connLabel = !s.configured ? 'Não configurado' : STATE_LABEL[st.state] || st.state || '—';
     const connClass = !s.configured || st.state === 'error' || st.state === 'offline' ? 'pill warn' : 'pill ok';
     const hasUp = up && up.newer;
+    const inWindow = s.windowMode === 'window';
     if (hasUp) progressEl = el('progress', { max: '100', value: '0' });
     countdownEl = el('div', { class: 'msg' });
+
+    const tile = (title, desc, onclick, cls = '') => el('button', { class: `tile ${cls}`.trim(), onclick }, el('b', {}, title), el('span', {}, desc));
 
     root.replaceChildren(
       el(
         'div',
         { class: 'box wide' },
-        el('h1', {}, 'Reprodutor Player'),
+        el(
+          'div',
+          { class: 'winbar' },
+          el('h1', {}, 'Reprodutor Player'),
+          el('div', { class: 'winbtns' }, el('button', { class: 'winbtn', onclick: needAuth(run('minimize'), true) }, 'Minimizar'), el('button', { class: 'winbtn', onclick: needAuth(run('window-toggle'), true) }, inWindow ? 'Tela cheia' : 'Janela')),
+        ),
         el(
           'div',
           { class: 'info' },
@@ -194,23 +203,22 @@
           el('div', { class: 'pill' }, 'Última sincronização', el('b', {}, st.lastSyncAt ? new Date(st.lastSyncAt).toLocaleString('pt-BR') : '—'), `${s.playableCount}/${s.itemCount} mídias no disco`),
           el('div', { class: hasUp ? 'pill warn' : 'pill' }, 'Versão', el('b', {}, `v${s.version || (up && up.current) || '—'}`), hasUp ? `v${up.latest} disponível` : 'Sem atualização pendente'),
         ),
-        el('div', {}, `Mídias baixadas (${cards.length})`),
-        cards.length ? el('div', { class: 'grid' }, ...cards) : el('p', {}, s.configured ? 'Nenhuma mídia publicada ainda.' : 'Player não configurado. Clique em "Conexão com o admin" e cole o código de pareamento.'),
+        el('button', { class: 'bigstart', onclick: close }, el('b', {}, 'Iniciar reprodução'), el('span', {}, 'Mostra a programação na tela')),
+        hasUp ? tile(`Atualizar para v${up.latest}`, 'Baixa, instala e reabre sozinho', needAuth(doUpdate, true), 'accent') : null,
         hasUp ? el('div', {}, progressEl) : null,
         msg,
         el(
           'div',
-          { class: 'row' },
-          el('button', { class: 'primary', onclick: close }, 'Iniciar reprodução'),
-          hasUp ? el('button', { class: 'primary', onclick: needAuth(doUpdate, true) }, `Atualizar para v${up.latest}`) : null,
-          el('button', { onclick: needAuth(run('sync'), true) }, 'Sincronizar agora'),
-          el('button', { onclick: needAuth(showDisplay) }, 'Exibição'),
-          el('button', { onclick: needAuth(showConfig) }, 'Conexão com o admin'),
-          el('button', { onclick: needAuth(checkUpdates, true) }, 'Verificar atualizações'),
-          el('button', { onclick: needAuth(run('minimize'), true) }, 'Minimizar o player'),
-          el('button', { onclick: needAuth(run('windows-settings'), true) }, 'Configurações do Windows'),
-          el('button', { onclick: needAuth(() => showMenu()) }, 'Mais opções'),
+          { class: 'tiles' },
+          tile('Sincronizar agora', 'Busca mídias e playlist novas', needAuth(run('sync'), true)),
+          tile('Conexão com o admin', 'Parear com o código e escolher a tela', needAuth(showConfig)),
+          tile('Exibição', 'Ajuste da imagem, rotação e volume', needAuth(showDisplay)),
+          tile('Verificar atualizações', 'Procura uma versão nova no GitHub', needAuth(checkUpdates, true)),
+          tile('Configurações do Windows', 'Abre o Windows (o player minimiza)', needAuth(run('windows-settings'), true)),
+          tile('Mais opções', 'Log, pasta de dados, reiniciar e sair', needAuth(() => showMenu())),
         ),
+        el('div', {}, `Mídias baixadas (${cards.length})`),
+        cards.length ? el('div', { class: 'grid' }, ...cards) : el('p', {}, s.configured ? 'Nenhuma mídia publicada ainda.' : 'Player não configurado. Toque em "Conexão com o admin" e cole o código de pareamento.'),
         countdownEl,
       ),
     );
@@ -444,6 +452,8 @@
   };
   window.addEventListener('mousemove', bump);
   window.addEventListener('click', bump);
+  window.addEventListener('pointerdown', bump);
+  window.addEventListener('touchstart', bump);
 
   window.addEventListener('keydown', (e) => {
     bump();

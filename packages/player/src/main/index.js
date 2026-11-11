@@ -91,6 +91,7 @@ function main() {
     screenChoices,
     configFile: config.file,
     version: app.getVersion(),
+    windowMode: winMode,
     display: config.display,
     media: engine.manifest
       ? engine.manifest.items.map((it) => {
@@ -178,6 +179,7 @@ function main() {
   ipcMain.handle('maint:action', async (_e, token, action) => {
     if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
     log(`Manutenção: ação "${action}"`);
+    armWindowTimer(); // usar o painel adia a volta automática à tela cheia
     switch (action) {
       case 'sync': {
         const r = await engine.syncOnce();
@@ -186,6 +188,9 @@ function main() {
       case 'open-folder':
         await shell.openPath(dataDir);
         return { ok: true, message: 'Pasta aberta' };
+      case 'window-toggle':
+        setWindowMode(winMode === 'full' ? 'window' : 'full');
+        return { ok: true, message: winMode === 'full' ? 'Tela cheia.' : `Modo janela (volta sozinho à tela cheia após ${WINDOW_MODE_MINUTES} min sem uso do painel).` };
       case 'minimize':
         minimizeWindow();
         return { ok: true, message: `Player minimizado; volta sozinho em ${MINIMIZE_MINUTES} min (ou clique no ícone na barra de tarefas).` };
@@ -338,6 +343,8 @@ function main() {
 
   // ---- janela ----
 
+  let winMode = windowed ? 'window' : 'full'; // 'full' = tela cheia sempre por cima; 'window' = janela comum
+
   // Minimizar para acessar o Windows: o player volta sozinho à tela cheia depois de um tempo,
   // para a TV não ficar sem conteúdo se esquecerem a janela minimizada.
   const MINIMIZE_MINUTES = 10;
@@ -346,13 +353,50 @@ function main() {
     clearTimeout(restoreTimer);
     if (!win || win.isDestroyed()) return;
     if (win.isMinimized()) win.restore();
-    if (!windowed) {
+    if (winMode === 'full') {
       win.setFullScreen(true);
       win.setAlwaysOnTop(true, 'screen-saver');
     }
     win.show();
     win.focus();
   };
+
+  // Tela cheia (padrão da TV) <-> janela comum (mover, redimensionar, usar o Windows ao lado). Se ficar em janela
+  // por 30 min sem uso do painel, volta sozinha à tela cheia para a TV não ficar com o player em janela.
+  const WINDOW_MODE_MINUTES = 30;
+  let windowTimer = null;
+  const armWindowTimer = () => {
+    clearTimeout(windowTimer);
+    if (winMode === 'window' && !windowed) {
+      windowTimer = setTimeout(() => {
+        log('Voltando à tela cheia (tempo em janela esgotado)');
+        setWindowMode('full');
+      }, WINDOW_MODE_MINUTES * 60000);
+    }
+  };
+  function setWindowMode(mode) {
+    if (!win || win.isDestroyed()) return;
+    winMode = mode;
+    clearTimeout(restoreTimer);
+    if (win.isMinimized()) win.restore();
+    if (mode === 'full') {
+      clearTimeout(windowTimer);
+      win.setFullScreen(true);
+      win.setAlwaysOnTop(true, 'screen-saver');
+    } else {
+      win.setAlwaysOnTop(false);
+      win.setFullScreen(false);
+      setTimeout(() => {
+        if (!win || win.isDestroyed() || winMode !== 'window') return;
+        win.setSize(1200, 780);
+        win.center();
+      }, 350);
+      armWindowTimer();
+    }
+    win.show();
+    win.focus();
+    notify();
+  }
   const minimizeWindow = () => {
     if (!win || win.isDestroyed()) return;
     log(`Janela minimizada pela manutenção (volta em ${MINIMIZE_MINUTES} min)`);
@@ -390,7 +434,7 @@ function main() {
     // Voltou da barra de tarefas (ou do tempo limite): tela cheia e por cima de novo.
     win.on('restore', () => {
       clearTimeout(restoreTimer);
-      if (!windowed) {
+      if (winMode === 'full') {
         win.setFullScreen(true);
         win.setAlwaysOnTop(true, 'screen-saver');
       }

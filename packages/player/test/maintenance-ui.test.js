@@ -147,7 +147,7 @@ test('painel inicial: abre sozinho, lista as mídias, mostra o aviso de HEVC e s
   assert.ok(!t.maint.classList.contains('hidden'), 'abre ao ligar');
   assert.deepEqual(t.holds, [true]);
   const txt = t.maint.innerText;
-  for (const re of [/Reprodutor Player/, /Conectado/, /promo\.mp4/, /oferta\.jpg/, /ainda não baixado/, /HEVC: não reproduz/, /v0\.1\.5/, /Iniciar reprodução/, /Exibição/, /Conexão com o admin/, /Minimizar o player/, /Configurações do Windows/]) {
+  for (const re of [/Reprodutor Player/, /Conectado/, /promo\.mp4/, /oferta\.jpg/, /ainda não baixado/, /HEVC: não reproduz/, /v0\.1\.5/, /Iniciar reprodução/, /Exibição/, /Conexão com o admin/, /Minimizar/, /Janela/, /Configurações do Windows/]) {
     assert.match(txt, re);
   }
   assert.match(txt, /começa sozinha em 60 s/);
@@ -187,7 +187,7 @@ test('painel inicial: botões pedem a senha, depois seguem para a tela pedida; b
   assert.match(t.maint.innerText, /Reiniciar/);
   await t.click(/Voltar ao painel/);
 
-  await t.click(/Minimizar o player/);
+  await t.click(/Minimizar/);
   assert.ok(t.maint.classList.contains('hidden'));
 
   // botão do canto (reprodução rodando) volta a esta tela
@@ -259,4 +259,28 @@ test('conexão: botão Colar código copiado lê a área de transferência e apl
   assert.deepEqual(applied, ['RM1-abcdefghijkl.00000000']);
   assert.match(t.maint.innerText, /Código aceito/);
   assert.deepEqual(t.errors, []);
+});
+
+test('janela: botões Minimizar e Janela/Tela cheia pedem a senha, alternam o modo e o rótulo muda', async () => {
+  const actions = [];
+  const t = setup({
+    action: async (_t, a) => (actions.push(a), { ok: true, message: 'feito' }),
+  });
+  await t.tick();
+  assert.match(t.maint.innerText, /Janela/);
+  await t.click(/^\s*Janela\s*$/);
+  for (const i of t.inputs()) i.value = 'senha-123';
+  await t.click(/Definir e entrar/);
+  assert.deepEqual(actions, ['window-toggle']);
+  assert.match(t.maint.innerText, /Minimizar/);
+  assert.deepEqual(t.errors, []);
+});
+
+test('toque: alvos de ação são botões grandes com descrição e o toque adia o início automático', async () => {
+  const t = setup();
+  await t.tick();
+  const tiles = t.maint.all((n) => n.tagName === 'BUTTON' && n.classSet.has('tile'));
+  assert.ok(tiles.length >= 5);
+  for (const b of tiles) assert.ok(b.children.length === 2, 'título + descrição');
+  assert.ok(t.maint.all((n) => n.classSet.has('bigstart')).length === 1);
 });

@@ -85,15 +85,14 @@ body.maint-open #corner { display: none; }
   inset: 0;
   z-index: 20;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   background: #0d0f12;
   color: #e6e8ec;
 }
 #maint .box {
-  width: min(560px, 90vw);
-  max-height: 90vh;
-  overflow: auto;
+  width: min(560px, 94vw);
+  margin: 16px 0;
   background: #1c1f25;
   border: 1px solid #2e333d;
   border-radius: 10px;
@@ -131,7 +130,7 @@ body.maint-open #corner { display: none; }
 #maint button:hover { border-color: #4c8dff; }
 #maint button.primary { background: #4c8dff; border-color: #4c8dff; color: #fff; }
 #maint button.danger:hover { border-color: #ef5b5b; color: #ef5b5b; }
-#maint .box.wide { width: min(860px, 94vw); }
+#maint .box.wide { width: min(980px, 96vw); }
 #maint .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
 #maint .card { background: #14161a; border: 1px solid #2e333d; border-radius: 8px; overflow: hidden; font-size: 12px; }
 #maint .card.bad { border-color: #ef5b5b; }
@@ -158,6 +157,42 @@ body.maint-open #corner { display: none; }
   font: 12px/1.5 Consolas, monospace;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* Toque e mouse: alvos de pelo menos 48 px, foco visível para teclado, retorno ao toque. */
+#maint { -webkit-tap-highlight-color: transparent; overflow: auto; touch-action: pan-y; }
+#maint .box { max-height: none; margin: auto; }
+#maint button, #maint select, #maint input, #maint textarea { min-height: 48px; font-size: 16px; touch-action: manipulation; }
+#maint button { transition: background 0.12s, border-color 0.12s, transform 0.08s; }
+#maint button:active { transform: scale(0.98); background: #2d323c; }
+#maint button.primary:active { background: #3a78e6; }
+#maint button:focus-visible, #maint select:focus-visible, #maint input:focus-visible, #maint textarea:focus-visible { outline: 3px solid #8db8ff; outline-offset: 2px; }
+#maint .linkbtn { background: none; border: 0; color: #8db8ff; min-height: 40px; align-self: flex-start; padding: 6px 2px; }
+#maint .winbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; -webkit-app-region: drag; }
+#maint .winbar h1 { font-size: 20px; }
+#maint .winbtns { display: flex; gap: 8px; -webkit-app-region: no-drag; }
+#maint .winbtn { padding: 8px 16px; min-width: 96px; }
+#maint .bigstart { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 64px; background: #4c8dff; border-color: #4c8dff; color: #fff; border-radius: 10px; }
+#maint .bigstart b { font-size: 20px; font-weight: 600; }
+#maint .bigstart span { font-size: 13px; opacity: 0.9; }
+#maint .bigstart:hover { background: #5b98ff; }
+#maint .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+#maint .tile { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; min-height: 72px; padding: 12px 14px; border-radius: 10px; }
+#maint .tile b { font-size: 16px; font-weight: 600; }
+#maint .tile span { font-size: 13px; color: #9097a3; }
+#maint .tile.accent { background: #3a2f12; border-color: #f2b84b; }
+#maint .tile.accent b { color: #f2b84b; }
+#maint .card { font-size: 13px; }
+#maint .thumb { height: 90px; }
+#maint progress { height: 14px; }
+@media (max-width: 640px) {
+  #maint .box { width: 100vw; border-radius: 0; padding: 14px; min-height: 100vh; }
+  #maint .tiles { grid-template-columns: 1fr; }
+  #maint .winbar { flex-wrap: wrap; }
+}
+@media (pointer: coarse) {
+  #maint button { min-height: 56px; }
+  #maint .winbtn { min-height: 52px; }
 }
 
 .hidden { display: none !important; }
