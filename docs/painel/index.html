@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; img-src https: data: blob:; media-src https: blob:; connect-src https://*.backblazeb2.com; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'none'">
+        content="default-src 'none'; img-src https: data: blob:; media-src https: blob:; connect-src https://*.backblazeb2.com https://api.github.com; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'none'">
   <title>Painel web — Reprodutor de Mídia</title>
   <link rel="stylesheet" href="panel.css">
   <style>
@@ -30,12 +30,9 @@
   <div id="gate" hidden></div>
   <header>
     <div class="brand">Reprodutor de Mídia</div>
-    <label class="screen-pick">Tela
-      <select id="screen-select"></select>
-    </label>
-    <nav id="tabs"></nav>
+    <nav id="tabs" aria-label="Seções do painel"></nav>
   </header>
-  <main id="view"></main>
+  <main id="view" tabindex="-1"></main>
   <div id="toast" class="toast hidden"></div>
   <script src="app.js"></script>
 </body>

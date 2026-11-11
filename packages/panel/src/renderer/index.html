@@ -10,12 +10,9 @@
 <body>
   <header>
     <div class="brand">Reprodutor de Mídia</div>
-    <label class="screen-pick">Tela
-      <select id="screen-select"></select>
-    </label>
-    <nav id="tabs"></nav>
+    <nav id="tabs" aria-label="Seções do painel"></nav>
   </header>
-  <main id="view"></main>
+  <main id="view" tabindex="-1"></main>
   <div id="toast" class="toast hidden"></div>
   <script src="panel.js"></script>
 </body>

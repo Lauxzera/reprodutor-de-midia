@@ -3,17 +3,18 @@
 const api = window.panelApi;
 
 const TABS = [
-  ['library', 'Biblioteca'],
-  ['playlist', 'Playlist'],
-  ['publish', 'Publicar'],
+  ['home', 'Início'],
   ['screens', 'Telas'],
-  ['monitor', 'Monitoramento'],
+  ['library', 'Mídias'],
+  ['connect', 'Conectar TV'],
   ['settings', 'Configurações'],
 ];
 const DAY_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 const state = {
-  tab: 'library',
+  tab: 'home',
+  screenTab: 'playlist', // dentro de Telas: playlist | publish | settings
+  newScreen: false,
   screenId: null,
   project: null,
   library: [],
@@ -283,11 +284,11 @@ function viewLibrary() {
   return h(
     'div',
     {},
-    h('h2', {}, 'Biblioteca'),
-    h('p', { class: 'sub' }, api.web ? 'Arquivos disponíveis para as playlists. Cada arquivo é enviado ao seu bucket do B2.' : 'Arquivos disponíveis para as playlists. Cada arquivo é copiado para o painel.'),
+    h('h2', {}, 'Mídias'),
+    h('p', { class: 'sub' }, api.web ? 'Imagens e vídeos disponíveis para as playlists. Cada arquivo é enviado ao seu bucket do B2.' : 'Imagens e vídeos disponíveis para as playlists. Cada arquivo é copiado para o painel.'),
     quotaBar(),
     zone,
-    state.library.length ? grid : h('p', { class: 'muted' }, 'Nenhuma mídia ainda.'),
+    state.library.length ? grid : h('p', { class: 'muted' }, 'Nenhuma mídia ainda. Arraste arquivos para cá ou use o botão acima.'),
   );
 }
 
@@ -460,8 +461,7 @@ function itemRow(it, i, total) {
   return row;
 }
 
-function viewPlaylist() {
-  const screen = currentScreen();
+function playlistPanel(screen) {
   const list = h('div', { class: 'list' });
   screen.items.forEach((it, i) => list.append(itemRow(it, i, screen.items.length)));
 
@@ -470,8 +470,8 @@ function viewPlaylist() {
     return m && m.type === 'image' ? n + (it.durationSec || 10) : n;
   }, 0);
 
-  const picker = h('div', { class: 'card' }, h('h3', {}, 'Biblioteca'));
-  if (!state.library.length) picker.append(h('p', { class: 'muted' }, 'Adicione arquivos na aba Biblioteca.'));
+  const picker = h('div', { class: 'card picker' }, h('h3', {}, 'Mídias para adicionar'));
+  if (!state.library.length) picker.append(h('p', { class: 'muted' }, 'Nenhuma mídia ainda.'), h('button', { class: 'btn primary', onclick: () => setTab('library') }, 'Adicionar mídias'));
   for (const m of state.library) {
     picker.append(
       h(
@@ -484,13 +484,14 @@ function viewPlaylist() {
           {
             class: 'btn small primary',
             title: 'Adicionar ao fim da playlist',
+            'aria-label': `Adicionar ${m.name} à playlist`,
             onclick: () => {
               screen.items.push({ id: uid(), sha256: m.sha256, durationSec: 10, schedule: null });
               persist();
               render();
             },
           },
-          '+',
+          'Adicionar',
         ),
       ),
     );
@@ -499,15 +500,70 @@ function viewPlaylist() {
   return h(
     'div',
     {},
-    h('h2', {}, `Playlist — ${screen.name}`),
-    h('p', { class: 'sub' }, `${screen.items.length} item(ns)${imageSecs ? ` · ${imageSecs}s só das imagens` : ''}. Arraste para reordenar. Depois de editar, vá em Publicar.`),
-    h(
-      'div',
-      { class: 'two-col' },
-      screen.items.length ? list : h('div', { class: 'card muted' }, 'Playlist vazia. Adicione mídias da biblioteca ao lado.'),
-      picker,
-    ),
+    h('p', { class: 'sub' }, `${screen.items.length} item(ns)${imageSecs ? ` · ${imageSecs}s só das imagens` : ''}. Arraste pela alça para reordenar. As mudanças só chegam à TV depois de publicar.`),
+    h('div', { class: 'two-col' }, screen.items.length ? list : h('div', { class: 'card empty' }, h('b', {}, 'Playlist vazia'), h('span', { class: 'muted' }, 'Escolha mídias na lista ao lado para montar a programação desta tela.')), picker),
   );
+}
+
+// ---------- estado de cada tela (publicação e TV) ----------
+
+const sig = (s) => JSON.stringify({ items: s.items, settings: s.settings });
+
+/** Há mudanças na playlist/ajustes que a TV ainda não recebeu? */
+function isDirty(s) {
+  if (s.publishedSig) return s.publishedSig !== sig(s);
+  return !s.revision && s.items.length > 0; // nunca publicada e já tem itens
+}
+
+const PRESENCE = {
+  online: ['Online', 'ok'],
+  late: ['Sem sinal recente', 'warn'],
+  offline: ['Offline', 'err'],
+  none: ['Sem relatório', 'muted'],
+};
+const SYNC_STATE = { online: 'Conectado', idle: 'Conectado', offline: 'Sem internet (toca do disco)', error: 'Com erro', downloading: 'Baixando mídias', checking: 'Verificando' };
+
+function ago(sec) {
+  if (sec === null || sec === undefined) return '—';
+  if (sec < 90) return 'agora há pouco';
+  if (sec < 5400) return `há ${Math.round(sec / 60)} min`;
+  if (sec < 172800) return `há ${Math.round(sec / 3600)} h`;
+  return `há ${Math.round(sec / 86400)} dias`;
+}
+
+async function loadMonitor(auto) {
+  if (!api.monitor) return;
+  if (!auto && state.monitor === undefined) state.monitor = null;
+  try {
+    state.monitor = await api.monitor.list();
+  } catch (e) {
+    state.monitor = { rows: [], error: e.message };
+  }
+  if (state.tab === 'home' || state.tab === 'screens') {
+    render();
+    clearTimeout(loadMonitor.timer);
+    loadMonitor.timer = setTimeout(() => (state.tab === 'home' || state.tab === 'screens') && loadMonitor(true), 30000);
+  }
+}
+
+const rowFor = (id) => (state.monitor && state.monitor.rows ? state.monitor.rows.find((r) => r.id === id) || null : null);
+
+function chip(label, cls) {
+  return h('span', { class: `chip ${cls}` }, h('i', { class: 'dot' }), label);
+}
+
+function tvChip(row) {
+  if (!api.monitor) return null;
+  if (state.monitor === undefined || state.monitor === null) return h('span', { class: 'chip muted' }, 'Consultando…');
+  const [label, cls] = PRESENCE[row ? row.presence : 'none'];
+  return chip(label, cls);
+}
+
+/** "v0.1.8 · atual", "v0.1.5 · desatualizada" etc. */
+function versionText(row) {
+  if (!row || !row.version) return null;
+  const note = row.versionState === 'old' ? h('span', { class: 'warn' }, ' · desatualizada') : row.versionState === 'latest' ? h('span', { class: 'ok' }, ' · atual') : null;
+  return h('span', {}, `Player v${row.version}`, note);
 }
 
 // ---------- publicar ----------
@@ -528,71 +584,110 @@ function playerConfigText() {
   return JSON.stringify(cfg, null, 2);
 }
 
-function viewPublish() {
-  const screen = currentScreen();
-  const ready = storageReady();
-  const bar = h('div', { style: 'width:0' });
-  const logEl = h('pre', { class: 'log' }, state.publishLog.join('\n'));
-  const btn = h('button', { class: 'btn primary', disabled: state.publishing || !ready }, state.publishing ? 'Publicando…' : 'Publicar agora');
-
-  btn.addEventListener('click', async () => {
-    if (!screen.items.length && !confirm('A playlist está vazia: a TV ficará sem conteúdo. Publicar mesmo assim?')) return;
-    state.publishing = true;
-    state.lastPublish = null;
-    state.publishLog = [];
+async function runPublish(screen) {
+  if (state.publishing) return;
+  if (!screen.items.length && !confirm('A playlist está vazia: a TV ficará sem conteúdo. Publicar mesmo assim?')) return;
+  state.publishing = true;
+  state.lastPublish = null;
+  state.publishLog = [];
+  state.screenTab = 'publish';
+  render();
+  try {
+    state.lastPublish = await api.publish.run(screen.id);
+    screen.revision = state.lastPublish.revision;
+    screen.publishedSig = sig(screen);
+    persist();
+    toast(`Publicado: revisão ${state.lastPublish.revision}`, 'success');
+    if (api.monitor) loadMonitor(true);
+  } catch (e) {
+    state.publishLog.push(`ERRO: ${e.message}`);
+    toast(e.message, 'error');
+  } finally {
+    state.publishing = false;
     render();
-    try {
-      state.lastPublish = await api.publish.run(screen.id);
-      screen.revision = state.lastPublish.revision;
-      toast(`Publicado: revisão ${state.lastPublish.revision}`, 'success');
-    } catch (e) {
-      state.publishLog.push(`ERRO: ${e.message}`);
-      toast(e.message, 'error');
-    } finally {
-      state.publishing = false;
-      render();
-    }
-  });
+  }
+}
 
+function publishPanel(screen) {
+  const ready = storageReady();
+  const row = rowFor(screen.id);
+  const dirty = isDirty(screen);
+  const logEl = h('pre', { class: 'log' }, state.publishLog.join('\n'));
+  const tvRev = row && row.report && row.report.revision !== null && row.report.revision !== undefined ? row.report.revision : null;
+
+  return h(
+    'div',
+    { class: 'form' },
+    h('p', { class: 'sub' }, 'Envia as mídias novas e, por último, a programação. As TVs sincronizam sozinhas na próxima consulta (em geral, até 2 minutos).'),
+    h(
+      'div',
+      { class: 'card' },
+      h(
+        'div',
+        { class: 'facts' },
+        h('div', {}, h('span', { class: 'muted' }, 'Itens na playlist'), h('b', {}, String(screen.items.length))),
+        h('div', {}, h('span', { class: 'muted' }, 'Revisão publicada'), h('b', {}, screen.revision || '—')),
+        tvRev !== null ? h('div', {}, h('span', { class: 'muted' }, 'Revisão na TV'), h('b', {}, String(tvRev))) : null,
+        h('div', {}, h('span', { class: 'muted' }, 'Situação'), dirty ? h('b', { class: 'warn' }, 'Mudanças não publicadas') : h('b', { class: 'ok' }, screen.revision ? 'Em dia' : 'Nada a publicar')),
+      ),
+      h('button', { class: 'btn primary big', disabled: state.publishing || !ready, onclick: () => runPublish(screen) }, state.publishing ? 'Publicando…' : dirty ? 'Publicar agora' : 'Publicar de novo'),
+      ready ? null : h('p', { class: 'warn', style: 'margin-bottom:0' }, 'Armazenamento não configurado. ', h('button', { class: 'linkbtn', onclick: () => setTab('settings') }, 'Abrir Configurações')),
+      state.publishing || state.publishLog.length ? h('div', { style: 'margin-top:14px;display:flex;flex-direction:column;gap:10px' }, h('div', { class: 'progress' }, h('div', { id: 'pub-bar' })), logEl) : null,
+      state.lastPublish ? h('p', { class: 'ok', style: 'margin-bottom:0' }, `Pronto: revisão ${state.lastPublish.revision} · ${state.lastPublish.uploaded} mídia(s) enviada(s), ${state.lastPublish.skipped} já estavam no bucket.`) : null,
+    ),
+  );
+}
+
+// ---------- conectar uma TV ----------
+
+function viewConnect() {
   if (api.pair && state.pair === undefined) loadPair();
+  const s = state.settings;
+  const needs = [];
+  if (!storageReady()) needs.push('conectar ao Backblaze');
+  else if (s.privateBucket && !s.hasReadKey) needs.push('informar a chave de leitura do player');
+
+  const method = (title, body) => h('div', { class: 'method' }, h('b', {}, title), h('p', { class: 'muted' }, body));
+
   const pairBlock = !api.pair
     ? null
     : h(
         'div',
-        { class: 'card', style: 'margin-top:18px' },
-        h('h3', {}, 'Parear um player'),
+        { class: 'card' },
         state.pair && state.pair.ok
           ? h(
               'div',
               {},
-              h('p', { class: 'muted', style: 'margin-top:0' }, 'Três jeitos de ligar uma TV, do mais direto ao mais manual:'),
-              h('p', { style: 'margin:6px 0' }, h('b', {}, '1. PC novo: '), 'copie o comando, cole no cmd do PC da TV e pronto: instala, conecta e escolhe a tela.'),
-              h('p', { style: 'margin:6px 0' }, h('b', {}, '2. Player já instalado: '), 'baixe o pair.txt e coloque num pendrive (ou na pasta Downloads do PC da TV) antes de abrir o Player, ou copie o código e clique em "Colar código copiado" em Conexão com o admin, no painel do Player.'),
-              h('p', { style: 'margin:6px 0' }, h('b', {}, '3. Manual: '), 'cole o código no campo da tela Conexão com o admin.'),
-              h('textarea', { class: 'code', rows: '4', readonly: true, style: 'width:100%;box-sizing:border-box' }, state.pair.code),
+              h('h3', {}, 'PC novo (recomendado)'),
+              h('p', { class: 'muted', style: 'margin-top:0' }, 'Abra o Prompt de Comando no PC da TV, cole o comando e pressione Enter. Ele instala o Player já conectado e escolhe a tela.'),
+              h('div', { class: 'row wrap' }, h('button', { class: 'btn primary', onclick: () => navigator.clipboard.writeText(installCommand(state.pair.code)).then(() => toast('Comando de instalação copiado', 'success')) }, 'Copiar comando de instalação')),
               h(
-                'div',
-                { class: 'row', style: 'margin-top:8px;gap:8px;flex-wrap:wrap' },
-                h('button', { class: 'btn small primary', onclick: () => navigator.clipboard.writeText(installCommand(state.pair.code)).then(() => toast('Comando de instalação copiado', 'success')) }, 'Copiar comando de instalação'),
-                h('button', { class: 'btn small', onclick: () => navigator.clipboard.writeText(state.pair.code).then(() => toast('Código copiado', 'success')) }, 'Copiar código'),
-                h('button', { class: 'btn small', onclick: () => downloadText('pair.txt', state.pair.code) }, 'Baixar pair.txt'),
+                'details',
+                { class: 'more' },
+                h('summary', {}, 'Player já instalado na TV'),
+                method('Arquivo pair.txt', 'Baixe o arquivo e coloque num pendrive (ou na pasta Downloads do PC da TV) antes de abrir o Player. Ele se conecta sozinho.'),
+                h('div', { class: 'row wrap' }, h('button', { class: 'btn', onclick: () => downloadText('pair.txt', state.pair.code) }, 'Baixar pair.txt')),
+                method('Colar o código', 'No Player: Ctrl+Shift+M, Conexão com o admin, Colar código copiado.'),
+                h('textarea', { class: 'code', rows: '3', readonly: true, style: 'width:100%;box-sizing:border-box' }, state.pair.code),
+                h('div', { class: 'row wrap', style: 'margin-top:8px' }, h('button', { class: 'btn', onclick: () => navigator.clipboard.writeText(state.pair.code).then(() => toast('Código copiado', 'success')) }, 'Copiar código')),
               ),
-              h('p', { class: 'warn', style: 'margin:8px 0 0;font-size:13px' }, 'Trate o código como senha: ele leva a chave de leitura do bucket (e a de status, que só grava em status/). Não publique nem envie em grupos.'),
+              h('p', { class: 'warn', style: 'margin:12px 0 0;font-size:13px' }, 'Trate o comando e o código como senha: levam a chave de leitura do bucket (e a de status, que só grava em status/). Não publique nem envie em grupos.'),
+              s.privateBucket && !s.hasStatusKey ? h('p', { class: 'muted', style: 'margin:8px 0 0;font-size:13px' }, 'Sem a chave de status, a TV funciona, mas não aparece online no Início. ', h('button', { class: 'linkbtn', onclick: () => setTab('settings') }, 'Informar a chave de status')) : null,
             )
           : state.pair
-            ? h('div', {}, h('p', { class: 'warn', style: 'margin-top:0' }, state.pair.error), h('button', { class: 'btn small', onclick: () => setTab('settings') }, 'Abrir Configurações'))
-            : h('p', { class: 'muted', style: 'margin-top:0' }, 'Gerando código…'),
+            ? h('div', {}, h('p', { class: 'warn', style: 'margin-top:0' }, state.pair.error), h('button', { class: 'btn', onclick: () => setTab('settings') }, 'Abrir Configurações'))
+            : h('p', { class: 'muted', style: 'margin:0' }, 'Gerando código…'),
       );
 
   const configBlock = h(
     'details',
-    { class: 'card', style: 'margin-top:18px' },
+    { class: 'card more' },
     h('summary', {}, 'Avançado: configuração do player em JSON'),
-    h('p', { class: 'muted', style: 'margin-top:8px' }, 'Alternativa ao código: no player, Ctrl+Shift+M > Configurar conexão > Avançado, e cole este JSON.'),
+    h('p', { class: 'muted', style: 'margin-top:8px' }, 'Alternativa ao código: no player, Ctrl+Shift+M, Conexão com o admin, Avançado, e cole este JSON.'),
     h('pre', { class: 'code' }, playerConfigText()),
     (() => {
       // Cada consulta do player ao manifesto conta como uma leitura; o limite gratuito diário do B2 é compartilhado por todos os players.
-      const poll = Number((JSON.parse(playerConfigText()).pollSeconds)) || 60;
+      const poll = Number(JSON.parse(playerConfigText()).pollSeconds) || 60;
       const perDay = Math.ceil(86400 / poll);
       const over = perDay > 1250;
       return h('p', { class: over ? 'warn' : 'muted', style: 'margin:8px 0 0;font-size:13px' }, `Cada player consulta a cada ${poll} s: cerca de ${perDay} leituras por dia, de ~2.500 gratuitas por dia no B2 (somando todos os players e o painel).${over ? ' Com 2 ou mais players, aumente o intervalo.' : ''}`);
@@ -603,158 +698,195 @@ function viewPublish() {
 
   return h(
     'div',
-    { class: 'form', style: 'max-width:760px' },
-    h('h2', {}, `Publicar — ${screen.name}`),
-    h('p', { class: 'sub' }, 'Envia as mídias novas e, por último, a programação. Os players sincronizam sozinhos na próxima consulta.'),
-    h(
-      'div',
-      { class: 'card' },
-      h('div', { class: 'row wrap', style: 'gap:32px' }, h('div', {}, h('div', { class: 'muted' }, 'Itens na playlist'), h('div', { style: 'font-size:20px' }, screen.items.length)), h('div', {}, h('div', { class: 'muted' }, 'Última revisão publicada'), h('div', { style: 'font-size:20px' }, screen.revision || '—')), h('span', { class: 'spacer' }), btn),
-      ready ? null : h('p', { class: 'warn', style: 'margin-bottom:0' }, 'Armazenamento não configurado. Vá em Configurações.'),
-      state.publishing || state.publishLog.length ? h('div', { style: 'margin-top:14px;display:flex;flex-direction:column;gap:10px' }, h('div', { class: 'progress' }, h('div', { id: 'pub-bar' })), logEl) : null,
-      state.lastPublish ? h('p', { class: 'ok', style: 'margin-bottom:0' }, `Pronto: revisão ${state.lastPublish.revision} · ${state.lastPublish.uploaded} mídia(s) enviada(s), ${state.lastPublish.skipped} já estavam no bucket.`) : null,
-    ),
-    pairBlock,
-    configBlock,
+    { class: 'form' },
+    h('h2', {}, 'Conectar uma TV'),
+    h('p', { class: 'sub' }, 'Liga o Player de uma TV a este painel. Cada TV escolhe a sua tela depois de conectada.'),
+    needs.length ? h('div', { class: 'callout warn-box' }, h('b', {}, `Falta ${needs.join(' e ')}.`), h('button', { class: 'btn', onclick: () => setTab('settings') }, 'Abrir Configurações')) : null,
+    needs.length ? null : pairBlock,
+    needs.length ? null : configBlock,
   );
 }
 
 // ---------- telas ----------
 
-function viewScreens() {
-  const takenIds = state.project.screens.map((s) => s.id);
-  const newName = h('input', { type: 'text', placeholder: 'Nome da nova tela (ex.: Vitrine)' });
-
-  const rows = state.project.screens.map((s) =>
-    h(
-      'tr',
-      {},
-      h('td', {}, h('input', { type: 'text', value: s.name, onchange: (e) => { s.name = e.target.value.trim() || s.name; persist(); render(); } })),
-      h('td', { class: 'muted' }, s.id),
-      h('td', {}, h('select', { onchange: (e) => { s.settings.fit = e.target.value; persist(); } }, [['contain', 'Conter (sem cortar)'], ['cover', 'Preencher (corta)'], ['fill', 'Esticar']].map(([v, l]) => h('option', { value: v, selected: s.settings.fit === v }, l)))),
-      h('td', {}, h('input', { type: 'number', min: '0', max: '5000', step: '100', value: s.settings.transitionMs, onchange: (e) => { s.settings.transitionMs = Math.max(0, Math.min(5000, Number(e.target.value) || 0)); persist(); } })),
-      h('td', {}, h('input', { type: 'checkbox', checked: s.settings.muted, onchange: (e) => { s.settings.muted = e.target.checked; persist(); } })),
-      h(
-        'td',
-        {},
-        h(
-          'button',
-          {
-            class: 'btn small danger',
-            disabled: state.project.screens.length === 1,
-            onclick: () => {
-              if (!confirm(`Excluir a tela "${s.name}" e a sua playlist? O que já foi publicado no bucket não é apagado.`)) return;
-              state.project.screens = state.project.screens.filter((x) => x.id !== s.id);
-              if (state.screenId === s.id) state.screenId = state.project.screens[0].id;
-              persist();
-              render();
-            },
-          },
-          'Excluir',
-        ),
-      ),
-    ),
-  );
-
+function screenSettingsPanel(screen) {
+  const takenFit = [['contain', 'Conter (sem cortar)'], ['cover', 'Preencher (corta as bordas)'], ['fill', 'Esticar']];
   return h(
     'div',
-    {},
-    h('h2', {}, 'Telas'),
-    h('p', { class: 'sub' }, 'Cada tela tem a sua própria playlist e o seu manifesto. O ID identifica a tela no player e não muda.'),
-    h('div', { class: 'card' }, h('table', {}, h('thead', {}, h('tr', {}, ['Nome', 'ID', 'Ajuste da imagem', 'Transição (ms)', 'Vídeo mudo', ''].map((t) => h('th', {}, t)))), h('tbody', {}, rows))),
+    { class: 'form' },
+    h('p', { class: 'sub' }, 'O ID identifica a tela no Player e não muda. Ajustes de exibição só chegam à TV depois de publicar.'),
     h(
       'div',
-      { class: 'row', style: 'margin-top:14px;max-width:480px' },
-      newName,
+      { class: 'card' },
+      h('div', { class: 'field' }, h('label', {}, 'Nome da tela'), h('input', { type: 'text', value: screen.name, onchange: (e) => { screen.name = e.target.value.trim() || screen.name; persist(); render(); } })),
+      h('div', { class: 'field' }, h('label', {}, 'ID (não muda)'), h('input', { type: 'text', value: screen.id, readonly: true })),
+      h('div', { class: 'field' }, h('label', {}, 'Ajuste da imagem'), h('select', { onchange: (e) => { screen.settings.fit = e.target.value; persist(); render(); } }, takenFit.map(([v, l]) => h('option', { value: v, selected: screen.settings.fit === v }, l)))),
+      h('div', { class: 'field' }, h('label', {}, 'Transição entre itens (ms)'), h('input', { type: 'number', min: '0', max: '5000', step: '100', value: screen.settings.transitionMs, onchange: (e) => { screen.settings.transitionMs = Math.max(0, Math.min(5000, Number(e.target.value) || 0)); persist(); render(); } })),
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: screen.settings.muted, onchange: (e) => { screen.settings.muted = e.target.checked; persist(); render(); } }), ' Vídeos sem som'),
+    ),
+    h(
+      'div',
+      { class: 'card danger-zone' },
+      h('h3', {}, 'Excluir tela'),
+      h('p', { class: 'muted', style: 'margin-top:0' }, 'Remove esta tela e a sua playlist do painel. O que já foi publicado no bucket não é apagado.'),
       h(
         'button',
         {
-          class: 'btn primary',
+          class: 'btn danger',
+          disabled: state.project.screens.length === 1,
+          title: state.project.screens.length === 1 ? 'Mantenha ao menos uma tela' : '',
           onclick: () => {
-            const name = newName.value.trim();
-            if (!name) return toast('Informe o nome da tela', 'error');
-            const id = slugify(name, takenIds);
-            state.project.screens.push({ id, name, revision: 0, settings: { fit: 'contain', transitionMs: 600, muted: true }, items: [] });
-            state.screenId = id;
+            if (!confirm(`Excluir a tela "${screen.name}" e a sua playlist?`)) return;
+            state.project.screens = state.project.screens.filter((x) => x.id !== screen.id);
+            state.screenId = state.project.screens[0].id;
             persist();
             render();
           },
         },
-        'Criar tela',
+        'Excluir esta tela',
       ),
     ),
   );
 }
 
-// ---------- monitoramento ----------
-
-const PRESENCE = {
-  online: ['Online', 'ok'],
-  late: ['Sem sinal recente', 'warn'],
-  offline: ['Offline', 'err'],
-  none: ['Sem relatório', 'muted'],
-};
-const SYNC_STATE = { online: 'Conectado', idle: 'Conectado', offline: 'Sem internet (toca do disco)', error: 'Com erro', downloading: 'Baixando mídias', checking: 'Verificando' };
-
-function ago(sec) {
-  if (sec === null || sec === undefined) return '—';
-  if (sec < 90) return 'agora há pouco';
-  if (sec < 5400) return `há ${Math.round(sec / 60)} min`;
-  if (sec < 172800) return `há ${Math.round(sec / 3600)} h`;
-  return `há ${Math.round(sec / 86400)} dias`;
-}
-
-async function loadMonitor(auto) {
-  if (!api.monitor) return;
-  if (!auto) state.monitor = null;
-  try {
-    state.monitor = await api.monitor.list();
-  } catch (e) {
-    state.monitor = { rows: [], error: e.message };
-  }
-  if (state.tab === 'monitor') {
+function newScreenForm() {
+  const takenIds = state.project.screens.map((s) => s.id);
+  const name = h('input', { type: 'text', placeholder: 'Nome (ex.: Vitrine)', 'aria-label': 'Nome da nova tela' });
+  const create = () => {
+    const n = name.value.trim();
+    if (!n) return toast('Informe o nome da tela', 'error');
+    const id = slugify(n, takenIds);
+    state.project.screens.push({ id, name: n, revision: 0, settings: { fit: 'contain', transitionMs: 600, muted: true }, items: [] });
+    state.screenId = id;
+    state.screenTab = 'playlist';
+    state.newScreen = false;
+    persist();
     render();
-    clearTimeout(loadMonitor.timer);
-    loadMonitor.timer = setTimeout(() => state.tab === 'monitor' && loadMonitor(true), 30000);
-  }
+  };
+  name.addEventListener('keydown', (e) => e.key === 'Enter' && create());
+  setTimeout(() => name.focus(), 0);
+  return h('div', { class: 'newscreen' }, name, h('div', { class: 'row' }, h('button', { class: 'btn primary small', onclick: create }, 'Criar'), h('button', { class: 'btn small', onclick: () => ((state.newScreen = false), render()) }, 'Cancelar')));
 }
 
-function viewMonitor() {
-  if (state.monitor === undefined) loadMonitor();
-  const m = state.monitor;
-  const head = h('div', { class: 'row wrap', style: 'align-items:center;gap:10px' }, h('h2', { style: 'margin:0' }, 'Monitoramento das telas'), h('span', { class: 'spacer' }), h('button', { class: 'btn small', onclick: () => loadMonitor() }, 'Atualizar agora'));
-  if (!m) return h('div', {}, head, h('p', { class: 'muted' }, 'Consultando o bucket…'));
+const SCREEN_TABS = [
+  ['playlist', 'Playlist'],
+  ['publish', 'Publicar'],
+  ['settings', 'Ajustes'],
+];
 
-  const rows = (m.rows || []).map((r) => {
-    const [label, cls] = PRESENCE[r.presence] || PRESENCE.none;
-    const rep = r.report || {};
-    const ver = r.version ? `v${r.version}` : '—';
-    const verNote = r.versionState === 'old' ? h('span', { class: 'warn' }, ` · desatualizada (última: v${m.latestVersion})`) : r.versionState === 'latest' ? h('span', { class: 'ok' }, ' · atual') : null;
-    const sync = r.report ? SYNC_STATE[rep.state] || rep.state : '—';
-    const behind = r.published !== null && rep.revision !== null && rep.revision !== undefined && rep.revision < r.published;
-    const rev = r.report ? `rev. ${rep.revision ?? '—'}${behind ? ` (publicada: ${r.published})` : ''}` : r.published !== null ? `publicada: ${r.published}` : '—';
+function viewScreens() {
+  if (api.monitor && state.monitor === undefined) loadMonitor();
+  const screen = currentScreen();
+  const dirty = isDirty(screen);
+  const row = rowFor(screen.id);
+
+  const list = h(
+    'nav',
+    { class: 'screen-list', 'aria-label': 'Telas' },
+    state.project.screens.map((s) =>
+      h(
+        'button',
+        { class: `screen-item${s.id === state.screenId ? ' active' : ''}`, 'aria-current': s.id === state.screenId ? 'page' : null, onclick: () => { state.screenId = s.id; state.lastPublish = null; state.publishLog = []; render(); } },
+        h('span', { class: 'sname' }, s.name),
+        isDirty(s) ? h('span', { class: 'pend', title: 'Mudanças não publicadas' }, 'não publicada') : null,
+      ),
+    ),
+    state.newScreen ? newScreenForm() : h('button', { class: 'btn small add-screen', onclick: () => ((state.newScreen = true), render()) }, '+ Nova tela'),
+  );
+
+  const content = { playlist: playlistPanel, publish: publishPanel, settings: screenSettingsPanel }[state.screenTab] || playlistPanel;
+
+  return h(
+    'div',
+    { class: 'split' },
+    list,
+    h(
+      'section',
+      { class: 'detail' },
+      h(
+        'div',
+        { class: 'detail-head' },
+        h('div', {}, h('h2', {}, screen.name), h('div', { class: 'meta-line' }, tvChip(row), versionText(row), row && row.report && row.report.playing ? h('span', { class: 'muted' }, `Tocando: ${row.report.playing}`) : null)),
+      ),
+      dirty
+        ? h(
+            'div',
+            { class: 'callout warn-box' },
+            h('span', {}, h('b', {}, 'Mudanças não publicadas.'), ' A TV só vê a nova programação depois de publicar.'),
+            state.screenTab === 'publish' ? null : h('button', { class: 'btn primary', disabled: state.publishing || !storageReady(), onclick: () => runPublish(screen) }, 'Publicar agora'),
+          )
+        : null,
+      h('div', { class: 'seg', role: 'tablist' }, SCREEN_TABS.map(([id, label]) => h('button', { role: 'tab', 'aria-selected': state.screenTab === id ? 'true' : 'false', class: state.screenTab === id ? 'active' : '', onclick: () => ((state.screenTab = id), render()) }, label))),
+      content(screen),
+    ),
+  );
+}
+
+// ---------- início ----------
+
+function viewHome() {
+  if (api.monitor && state.monitor === undefined) loadMonitor();
+  const screens = state.project.screens;
+  const m = state.monitor;
+  const anyReport = Boolean(m && (m.rows || []).some((r) => r.presence !== 'none'));
+
+  const steps = [
+    { done: storageReady(), label: 'Conectar ao Backblaze', hint: 'Informe o bucket e as chaves.', go: () => setTab('settings') },
+    { done: state.library.length > 0, label: 'Adicionar mídias', hint: 'Envie as imagens e vídeos.', go: () => setTab('library') },
+    { done: screens.some((s) => s.items.length > 0), label: 'Montar a playlist', hint: 'Escolha o que cada tela exibe.', go: () => ((state.screenTab = 'playlist'), setTab('screens')) },
+    { done: screens.some((s) => s.revision > 0), label: 'Publicar', hint: 'Envie a programação para as TVs.', go: () => ((state.screenTab = 'publish'), setTab('screens')) },
+    { done: anyReport, label: 'Conectar uma TV', hint: 'Instale o Player e pareie.', go: () => setTab('connect') },
+  ];
+  const next = steps.findIndex((s) => !s.done);
+
+  const checklist =
+    next < 0
+      ? null
+      : h(
+          'div',
+          { class: 'card next' },
+          h('div', { class: 'next-main' }, h('div', { class: 'muted' }, `Próximo passo (${next + 1} de ${steps.length})`), h('h3', {}, steps[next].label), h('p', { class: 'muted' }, steps[next].hint)),
+          h('button', { class: 'btn primary big', onclick: steps[next].go }, 'Continuar'),
+          h('ol', { class: 'steps' }, steps.map((s, i) => h('li', { class: s.done ? 'done' : i === next ? 'current' : '' }, h('button', { class: 'linkbtn', onclick: s.go }, s.label)))),
+        );
+
+  const cards = screens.map((s) => {
+    const row = rowFor(s.id);
+    const dirty = isDirty(s);
     return h(
-      'tr',
-      {},
-      h('td', {}, h('b', {}, r.name), r.registered ? null : h('div', { class: 'muted', style: 'font-size:12px' }, 'não está no projeto')),
-      h('td', {}, h('span', { class: `badge ${cls}` }, label), h('div', { class: 'muted', style: 'font-size:12px' }, r.report ? ago(r.ageSec) : 'nunca relatou')),
-      h('td', {}, ver, verNote),
-      h('td', {}, sync, rep.message ? h('div', { class: 'muted', style: 'font-size:12px' }, rep.message) : null),
-      h('td', {}, rev, r.report ? h('div', { class: 'muted', style: 'font-size:12px' }, `${rep.playableCount ?? 0}/${rep.itemCount ?? 0} mídias no disco`) : null),
-      h('td', {}, rep.playing || '—'),
+      'div',
+      { class: 'card screen-card' },
+      h('div', { class: 'row' }, h('h3', { class: 'sc-name' }, s.name), h('span', { class: 'spacer' }), tvChip(row)),
+      h('div', { class: 'muted sc-line' }, `${s.items.length} item(ns) · revisão ${s.revision || '—'}`),
+      versionText(row) ? h('div', { class: 'sc-line' }, versionText(row)) : null,
+      row && row.report && row.report.playing ? h('div', { class: 'muted sc-line' }, `Tocando: ${row.report.playing}`) : null,
+      row && row.report ? h('div', { class: 'muted sc-line' }, `Último sinal ${ago(row.ageSec)}`) : null,
+      dirty ? h('div', { class: 'warn sc-line' }, 'Mudanças não publicadas') : null,
+      h(
+        'div',
+        { class: 'row sc-actions' },
+        h('button', { class: `btn${dirty ? ' primary' : ''}`, onclick: () => ((state.screenId = s.id), (state.screenTab = 'publish'), setTab('screens')) }, dirty ? 'Publicar' : 'Publicação'),
+        h('button', { class: 'btn', onclick: () => ((state.screenId = s.id), (state.screenTab = 'playlist'), setTab('screens')) }, 'Playlist'),
+      ),
     );
   });
 
-  const none = (m.rows || []).some((r) => r.presence === 'none');
+  const hasStatusKey = state.settings.hasStatusKey;
   return h(
     'div',
     {},
-    head,
-    h('p', { class: 'sub' }, 'Mostra cada tela, se o player está ligado e qual versão usa. Atualiza sozinho a cada 30 segundos. Versões antigas continuam funcionando: a programação publicada aqui é lida por todas.'),
-    m.error || m.listError ? h('p', { class: 'warn' }, `Não foi possível ler os relatórios: ${m.error || m.listError}`) : null,
-    h('div', { class: 'card' }, h('table', {}, h('thead', {}, h('tr', {}, ['Tela', 'Situação', 'Versão do player', 'Sincronização', 'Programação', 'Tocando agora'].map((t) => h('th', {}, t)))), h('tbody', {}, rows.length ? rows : h('tr', {}, h('td', { colspan: '6', class: 'muted' }, 'Nenhuma tela ainda.'))))),
-    none ? h('p', { class: 'muted', style: 'font-size:13px' }, '"Sem relatório" significa que o player nunca enviou o status: ou é uma versão anterior à 0.1.8 (funciona normalmente, só não relata), ou foi pareado sem a chave de status. Para relatar, informe a chave de status em Configurações e gere o código de pareamento de novo.') : null,
-    m.at ? h('p', { class: 'muted', style: 'font-size:12px' }, `Consultado às ${new Date(m.at).toLocaleTimeString('pt-BR')}. Online = relatou nos últimos 5 minutos.`) : null,
+    h('div', { class: 'row wrap' }, h('h2', { style: 'margin:0' }, 'Início'), h('span', { class: 'spacer' }), api.monitor ? h('button', { class: 'btn small', onclick: () => loadMonitor() }, 'Atualizar') : null),
+    h('p', { class: 'sub' }, 'Resumo das suas telas e o que fazer a seguir.'),
+    checklist,
+    h('h3', { class: 'section-title' }, 'Suas telas'),
+    h('div', { class: 'cards' }, cards),
+    m && (m.error || m.listError) ? h('p', { class: 'warn' }, `Não foi possível ler o status das TVs: ${m.error || m.listError}`) : null,
+    api.monitor && !hasStatusKey && state.settings.privateBucket
+      ? h('p', { class: 'muted note' }, 'Para ver aqui se cada TV está online e qual versão usa, informe a chave de status em ', h('button', { class: 'linkbtn', onclick: () => setTab('settings') }, 'Configurações'), ' e pareie as TVs de novo.')
+      : api.monitor && m && (m.rows || []).some((r) => r.presence === 'none')
+        ? h('p', { class: 'muted note' }, '"Sem relatório": a TV nunca enviou o status. Pode ser um Player anterior à 0.1.8 (funciona normalmente, só não relata) ou uma TV pareada sem a chave de status.')
+        : null,
+    quotaBar(),
   );
 }
 
@@ -787,32 +919,31 @@ function viewSettings() {
     },
   });
 
+  const saved = (ok) => h('span', { class: ok ? 'ok' : 'muted' }, ok ? '✓ salva' : 'não informada');
+  const help = (t) => h('div', { class: 'muted', style: 'font-size:12px' }, t);
+
   const b2 = h(
     'div',
     {},
-    h('div', { class: 'field' }, h('label', {}, 'Endpoint S3 do bucket'), endpointInput),
-    text('Região', 'region', 'us-west-004', 'Preenchida sozinha a partir do endpoint.'),
-    text('Nome do bucket', 'bucket', 'minha-loja-midias'),
     h(
       'div',
-      { class: 'field' },
-      h('label', {}, h('input', { type: 'checkbox', checked: Boolean(d.privateBucket), onchange: (e) => { d.privateBucket = e.target.checked; render(); } }), ' Bucket privado (o player lê com uma chave somente de leitura)'),
+      { class: 'card' },
+      h('h3', {}, 'Conexão com o Backblaze'),
+      h('div', { class: 'field' }, h('label', {}, 'Endpoint S3 do bucket'), endpointInput),
+      text('Região', 'region', 'us-west-004', 'Preenchida sozinha a partir do endpoint.'),
+      text('Nome do bucket', 'bucket', 'minha-loja-midias'),
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: Boolean(d.privateBucket), onchange: (e) => { d.privateBucket = e.target.checked; render(); } }), ' Bucket privado (o player lê com uma chave somente de leitura)'),
+      text('URL pública do bucket (opcional)', 'publicBaseUrl', 'https://<bucket>.s3.<região>.backblazeb2.com', 'Se vazio, usa https://<bucket>.<host do endpoint>. O bucket precisa estar com leitura pública.'),
+      h('div', { class: 'field' }, h('label', {}, 'Key ID da chave de leitura e escrita ', saved(state.settings.hasKeys)), keyId),
+      h('div', { class: 'field' }, h('label', {}, 'Application Key'), appKey, help('Fica criptografada neste computador e nunca vai para o player. Use uma chave com acesso só a este bucket.')),
     ),
-    text('URL pública do bucket (opcional)', 'publicBaseUrl', 'https://<bucket>.s3.<região>.backblazeb2.com', 'Se vazio, usa https://<bucket>.<host do endpoint>. O bucket precisa estar com leitura pública.'),
-    h('div', { class: 'field' }, h('label', {}, 'Key ID'), keyId),
-    h('div', { class: 'field' }, h('label', {}, 'Application Key'), appKey, h('div', { class: 'muted', style: 'font-size:12px' }, 'Fica criptografada neste computador e nunca vai para o player. Use uma chave com acesso só a este bucket.')),
     d.privateBucket
       ? h(
           'div',
-          { class: 'field' },
-          h('label', {}, 'Chave de leitura do player (opcional aqui, necessária para gerar o código de pareamento)'),
-          readKeyId,
-          readAppKey,
-          h('div', { class: 'muted', style: 'font-size:12px' }, 'Crie no B2 uma segunda chave, restrita ao bucket, com acesso Read Only. Ela vai dentro do código de pareamento; a chave de gravação nunca.'),
-          h('label', { style: 'margin-top:10px' }, 'Chave de status dos players (opcional: habilita a aba Monitoramento)'),
-          statusKeyId,
-          statusAppKey,
-          h('div', { class: 'muted', style: 'font-size:12px' }, 'Crie no B2 uma terceira chave, restrita ao bucket e ao prefixo status/, com permissão só de escrita (Write Only). Os players a usam apenas para relatar versão e estado; ela não lê nem apaga nada fora de status/.'),
+          { class: 'card' },
+          h('h3', {}, 'Chaves dos players'),
+          h('div', { class: 'field' }, h('label', {}, 'Chave de leitura ', saved(state.settings.hasReadKey), ' · necessária para gerar o código de pareamento'), readKeyId, readAppKey, help('Crie no B2 uma segunda chave, restrita ao bucket, com acesso Read Only. Ela vai dentro do código de pareamento; a chave de gravação nunca.')),
+          h('div', { class: 'field' }, h('label', {}, 'Chave de status ', saved(state.settings.hasStatusKey), ' · opcional, mostra no Início se cada TV está online'), statusKeyId, statusAppKey, help('Crie no B2 uma terceira chave, restrita ao bucket e ao prefixo status/, com permissão só de escrita (Write Only). Os players a usam apenas para relatar versão e estado; ela não lê nem apaga nada fora de status/.')),
         )
       : null,
   );
@@ -853,7 +984,7 @@ function viewSettings() {
     'div',
     { class: 'form' },
     h('h2', {}, 'Configurações'),
-    h('p', { class: 'sub' }, 'Onde as mídias e a programação são guardadas.'),
+    h('p', { class: 'sub' }, 'Conexão com o Backblaze, chaves dos players e manutenção.'),
     h(
       'div',
       { class: 'field' },
@@ -863,7 +994,7 @@ function viewSettings() {
     d.type === 'b2' || api.web ? b2 : folder,
     h(
       'div',
-      { class: 'row wrap' },
+      { class: 'row wrap savebar' },
       h('button', { class: 'btn primary', onclick: save }, 'Salvar'),
       h(
         'button',
@@ -919,33 +1050,41 @@ ${r.held.length} arquivo(s) (${formatSize(heldBytes)}) continuam porque a tela p
 // ---------- shell ----------
 
 function renderHeader() {
-  const sel = document.getElementById('screen-select');
-  sel.replaceChildren(...state.project.screens.map((s) => h('option', { value: s.id, selected: s.id === state.screenId }, s.name)));
-  sel.onchange = () => {
-    state.screenId = sel.value;
-    state.lastPublish = null;
-    state.publishLog = [];
-    render();
-  };
+  const pending = state.project.screens.filter(isDirty).length;
   document.getElementById('tabs').replaceChildren(
-    ...TABS.map(([id, label]) => h('button', { class: state.tab === id ? 'active' : '', onclick: () => setTab(id) }, label)),
+    ...TABS.map(([id, label]) =>
+      h(
+        'button',
+        { class: state.tab === id ? 'active' : '', 'aria-current': state.tab === id ? 'page' : null, onclick: () => setTab(id) },
+        label,
+        id === 'screens' && pending ? h('span', { class: 'nav-dot', title: 'Há mudanças não publicadas', 'aria-label': 'mudanças não publicadas' }) : null,
+      ),
+    ),
   );
 }
 
 function render() {
   renderHeader();
-  const views = { library: viewLibrary, playlist: viewPlaylist, publish: viewPublish, screens: viewScreens, monitor: viewMonitor, settings: viewSettings };
+  const views = { home: viewHome, screens: viewScreens, library: viewLibrary, connect: viewConnect, settings: viewSettings };
   const view = document.getElementById('view');
   const scroll = view.scrollTop;
-  view.replaceChildren(views[state.tab]());
+  view.replaceChildren((views[state.tab] || viewHome)());
   view.scrollTop = scroll;
 }
 
+// Nomes antigos das abas continuam valendo (testes automatizados e atalhos do app de mesa).
+const LEGACY_TABS = { playlist: ['screens', 'playlist'], publish: ['screens', 'publish'], monitor: ['home', null] };
+
 function setTab(tab) {
+  if (LEGACY_TABS[tab]) {
+    const [t, sub] = LEGACY_TABS[tab];
+    tab = t;
+    if (sub) state.screenTab = sub;
+  }
   state.tab = tab;
-  if (tab === 'monitor') state.monitor = undefined;
   if (tab === 'settings') state.settingsDraft = { ...state.settings };
   render();
+  document.getElementById('view').scrollTop = 0;
 }
 window.__goto = setTab; // usado nos testes automatizados
 
@@ -989,7 +1128,8 @@ async function boot() {
   state.settings = settings;
   state.settingsDraft = { ...settings };
   state.screenId = project.screens[0].id;
-  if (!storageReady()) state.tab = 'settings';
+  // Telas já publicadas antes do controle de mudanças: o estado atual vale como o publicado.
+  for (const sc of project.screens) if (sc.revision > 0 && !sc.publishedSig) sc.publishedSig = sig(sc);
   render();
   loadQuota(false);
   checkUpdate(false); // avisa se há versão nova (só no app de mesa)
