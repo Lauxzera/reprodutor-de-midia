@@ -88,6 +88,7 @@ function setup(apiOverrides = {}) {
     getState: async () => baseState,
     onChanged: () => {},
     maint: {
+      paste: async () => ({ ok: true, text: 'RM1-abcdefghijkl.00000000' }),
       setDisplay: async () => ({ ok: true, message: 'Exibição salva e aplicada.' }),
       status: async () => ({ hasPassword: password !== null, lockedMs: 0 }),
       setPassword: async (p) => ((password = p), { ok: true }),
@@ -245,4 +246,17 @@ test('painel inicial: sem mídias e sem configuração mostra a instrução e n�
   await t.tick();
   assert.match(t.maint.innerText, /cole o código de pareamento/);
   assert.equal(t.intervals.length, 0);
+});
+
+test('conexão: botão Colar código copiado lê a área de transferência e aplica o código', async () => {
+  const applied = [];
+  const t = setup({ applyPair: async (_t, c) => (applied.push(c), { ok: true, baseUrl: 'https://x/b', keyId: 'K', pollSeconds: 60, screens: ['loja'], screensError: '' }) });
+  await t.tick();
+  await t.click(/Conexão com o admin/);
+  for (const i of t.inputs()) i.value = 'senha-123';
+  await t.click(/Definir e entrar/);
+  await t.click(/Colar código copiado/);
+  assert.deepEqual(applied, ['RM1-abcdefghijkl.00000000']);
+  assert.match(t.maint.innerText, /Código aceito/);
+  assert.deepEqual(t.errors, []);
 });

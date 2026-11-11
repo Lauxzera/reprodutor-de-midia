@@ -1,11 +1,12 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, powerSaveBlocker, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, powerSaveBlocker, shell, clipboard } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { nextActiveItem, SLUG_RE, decodePair, checkForUpdate, downloadUpdate, launchInstaller } = require('@reprodutor/shared');
 const { listScreens } = require('./screens');
+const { findPairFile, writePairConfig } = require('./pairfile');
 const { SyncEngine } = require('./sync');
 const { loadConfig } = require('./config');
 const { createLogger, readLogTail } = require('./logger');
@@ -225,6 +226,13 @@ function main() {
       }
     }
     return out;
+  });
+
+  // Lê o código da área de transferência (botão "Colar código").
+  ipcMain.handle('maint:paste', (_e, token) => {
+    if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
+    const text = clipboard.readText().trim();
+    return text ? { ok: true, text: text.slice(0, 4000) } : { ok: false, error: 'A área de transferência está vazia. Copie o código no admin primeiro.' };
   });
 
   // Atualiza a lista de telas (com as credenciais pendentes ou as já salvas).
@@ -497,7 +505,18 @@ function main() {
     }
     if (config.configured) engine.start();
     else if (config.baseUrl && config.keyId && config.secretKey) autoPickScreen();
-    else log('Player sem configuração: pressione Ctrl+Shift+M na tela do player para configurar a conexão.');
+    else {
+      // Sem conexão: procura um pair.txt (pasta de dados, Downloads, Desktop ou pendrive) e se pareia sozinho.
+      const found = !config.baseUrl && findPairFile({ dataDir });
+      if (found) {
+        writePairConfig(config.file, found.pair);
+        log(`Pareado automaticamente pelo arquivo ${found.file}`);
+        if (path.resolve(path.dirname(found.file)) === path.resolve(dataDir)) fs.rmSync(found.file, { force: true }); // o código leva a chave de leitura
+        restart('pareado por pair.txt');
+        return;
+      }
+      log('Player sem configuração: use o botão do canto inferior direito (Conexão com o admin) ou coloque um pair.txt no pendrive.');
+    }
     // Verifica novas versões pouco depois de abrir e depois a cada 6 horas.
     setTimeout(checkUpdate, 15000);
     setInterval(checkUpdate, 6 * 60 * 60 * 1000);

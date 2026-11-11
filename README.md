@@ -134,3 +134,5 @@ release/          instaladores gerados (não versionar)
 - O B2 gratuito tem cotas de armazenamento e de download; confira no site.
 
 **Painel inicial (v0.1.5):** o Player abre mostrando o painel com a conexão com o admin, a última sincronização, a versão, as mídias baixadas (com aviso das que não tocam, como HEVC) e os botões *Iniciar reprodução*, *Atualizar* (com barra de download), *Exibição* (ajuste da imagem, rotação, volume), *Conexão com o admin*, *Minimizar* e *Configurações do Windows*. Sem ninguém mexer, a reprodução começa sozinha em 60 s. Durante a reprodução, o botão ⚙ do canto inferior direito volta a este painel.
+
+**Ligar uma TV com menos passos:** na aba Publicar do admin, *Copiar comando de instalação* gera uma linha para colar no cmd do PC da TV (instala, conecta e escolhe a tela sozinho). Para um Player já instalado, *Baixar pair.txt* e colocar o arquivo num pendrive, em Downloads ou no Desktop antes de abrir o Player (ele se pareia sozinho se ainda não tiver conexão), ou copiar o código e usar *Colar código copiado* em Conexão com o admin. O `pair.txt` leva a chave de leitura: apague-o depois e não o envie a ninguém.

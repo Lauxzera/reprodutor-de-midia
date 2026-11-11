@@ -84,6 +84,21 @@ function updateBlock() {
   );
 }
 
+// Comando para o cmd do PC da TV: baixa o instalador do GitHub e já instala pareado.
+const INSTALL_URL = 'https://raw.githubusercontent.com/Lauxzera/reprodutor-de-midia/main/install.ps1';
+const installCommand = (code) => `powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr ${INSTALL_URL} -OutFile $env:TEMP\\rm-install.ps1; & $env:TEMP\\rm-install.ps1 -App player -Pair ${code}"`;
+
+function downloadText(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 async function loadPair() {
   if (!api.pair || state.pair === null) return;
   state.pair = null;
@@ -548,9 +563,18 @@ function viewPublish() {
           ? h(
               'div',
               {},
-              h('p', { class: 'muted', style: 'margin-top:0' }, 'Cole este código no player (Ctrl+Shift+M > Configurar conexão) e escolha a tela na lista. Ou instale já pareado: install.ps1 -App player -Pair <código>.'),
+              h('p', { class: 'muted', style: 'margin-top:0' }, 'Três jeitos de ligar uma TV, do mais direto ao mais manual:'),
+              h('p', { style: 'margin:6px 0' }, h('b', {}, '1. PC novo: '), 'copie o comando, cole no cmd do PC da TV e pronto: instala, conecta e escolhe a tela.'),
+              h('p', { style: 'margin:6px 0' }, h('b', {}, '2. Player já instalado: '), 'baixe o pair.txt e coloque num pendrive (ou na pasta Downloads do PC da TV) antes de abrir o Player, ou copie o código e clique em "Colar código copiado" em Conexão com o admin, no painel do Player.'),
+              h('p', { style: 'margin:6px 0' }, h('b', {}, '3. Manual: '), 'cole o código no campo da tela Conexão com o admin.'),
               h('textarea', { class: 'code', rows: '4', readonly: true, style: 'width:100%;box-sizing:border-box' }, state.pair.code),
-              h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn small', onclick: () => navigator.clipboard.writeText(state.pair.code).then(() => toast('Código copiado', 'success')) }, 'Copiar código')),
+              h(
+                'div',
+                { class: 'row', style: 'margin-top:8px;gap:8px;flex-wrap:wrap' },
+                h('button', { class: 'btn small primary', onclick: () => navigator.clipboard.writeText(installCommand(state.pair.code)).then(() => toast('Comando de instalação copiado', 'success')) }, 'Copiar comando de instalação'),
+                h('button', { class: 'btn small', onclick: () => navigator.clipboard.writeText(state.pair.code).then(() => toast('Código copiado', 'success')) }, 'Copiar código'),
+                h('button', { class: 'btn small', onclick: () => downloadText('pair.txt', state.pair.code) }, 'Baixar pair.txt'),
+              ),
               h('p', { class: 'warn', style: 'margin:8px 0 0;font-size:13px' }, 'Trate o código como senha: ele leva a chave de leitura do bucket. Não publique nem envie em grupos.'),
             )
           : state.pair

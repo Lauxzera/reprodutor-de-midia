@@ -298,7 +298,7 @@
     };
 
     // Colar o código de pareamento: valida e já busca as telas publicadas.
-    code.addEventListener('input', async () => {
+    const applyCode = async () => {
       const text = code.value.trim();
       if (text.length < 12) return;
       const r = await api.maint.applyPair(token, text);
@@ -315,7 +315,18 @@
       poll.value = String(r.pollSeconds);
       fillScreens(r.screens);
       status.textContent = r.screensError ? `Código aceito, mas não consegui listar as telas: ${r.screensError}` : r.screens.length ? `Código aceito. ${r.screens.length} tela(s) publicada(s): escolha abaixo.` : 'Código aceito. Nenhuma tela publicada ainda: publique pelo painel e clique em "Atualizar lista".';
-    });
+    };
+    code.addEventListener('input', applyCode);
+    const pasteCode = async () => {
+      const r = await api.maint.paste(token);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão expirada. Digite a senha novamente.');
+      if (!r.ok) {
+        status.textContent = r.error;
+        return;
+      }
+      code.value = r.text;
+      await applyCode();
+    };
 
     // Compatibilidade: ainda aceita colar o JSON antigo no campo da URL.
     baseUrl.addEventListener('input', () => {
@@ -346,6 +357,7 @@
     box(
       el('h1', {}, 'Conexão com o bucket'),
       el('p', {}, 'Cole o código de pareamento do painel e escolha a tela. Só isso.'),
+      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: pasteCode }, 'Colar código copiado')),
       el('label', {}, 'Código de pareamento', code),
       status,
       el('label', {}, 'Tela', screenSel),
