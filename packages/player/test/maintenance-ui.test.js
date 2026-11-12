@@ -128,7 +128,7 @@ function setup(apiOverrides = {}, opts = {}) {
   const sandbox = { window: win, document, Node: FakeNode, setTimeout, clearTimeout, setInterval: (fn) => (intervals.push(fn), intervals.length), clearInterval: () => {}, console: { warn: () => {}, log: () => {}, error: (e) => errors.push(e) } };
   vm.runInNewContext(fs.readFileSync(process.env.MAINT_JS || path.join(__dirname, '../src/renderer/maintenance.js'), 'utf8'), sandbox);
   const tick = () => new Promise((r) => setTimeout(r, 20));
-  const button = (re) => maint.all((n) => n.tagName === 'BUTTON' && re.test(n.innerText))[0];
+  const button = (re) => [...maint.all((n) => n.tagName === 'BUTTON' && re.test(n.innerText)), ...body.all((n) => n.tagName === 'BUTTON' && re.test(n.innerText))][0];
   // clique sem esperar o fim do tratador (usado quando ele abre uma confirmação e fica aguardando a resposta)
   const tap = async (re) => {
     const b = button(re);
@@ -148,7 +148,8 @@ function setup(apiOverrides = {}, opts = {}) {
     await tick();
   };
   const inputs = () => maint.all((n) => n.tagName === 'INPUT');
-  return { maint, corner, click, tap, press, inputs, tick, errors, body, intervals, holds, win };
+  const text = () => `${maint.innerText} ${body.innerText}`;
+  return { maint, corner, text, click, tap, press, inputs, tick, errors, body, intervals, holds, win };
 }
 
 const openCorner = async (t) => {
@@ -232,7 +233,7 @@ test('painel inicial: aviso de versão nova, barra de progresso e botão Atualiz
   const bar = t.maint.all((n) => n.tagName === 'PROGRESS')[0];
   assert.ok(bar, 'barra de download presente');
   await t.tap(/Atualizar para v/);
-  assert.match(t.maint.innerText, /Atualizar para a v0\.1\.5\?/);
+  assert.match(t.text(), /Atualizar para a v0\.1\.5\?/);
   assert.deepEqual(calls, [], 'só atualiza depois de confirmar');
   await t.click(/^Atualizar$/);
   assert.deepEqual(calls, ['install']);
@@ -333,10 +334,10 @@ test('touch: confirmações são do próprio painel (botões grandes) e Cancelar
   await t.tick();
   await t.click(/Mais opções/);
   await t.tap(/Sair do player/);
-  assert.match(t.maint.innerText, /Encerrar o player\?/);
+  assert.match(t.text(), /Encerrar o player\?/);
   await t.click(/^Cancelar$/);
   assert.deepEqual(actions, []);
-  assert.ok(!/Encerrar o player\?/.test(t.maint.innerText), 'diálogo fechou');
+  assert.ok(!/Encerrar o player\?/.test(t.text()), 'diálogo fechou');
   await t.tap(/Sair do player/);
   await t.click(/^Confirmar$/);
   assert.deepEqual(actions, ['quit']);
@@ -394,4 +395,17 @@ test('touch: parado por alguns minutos, o painel fecha sozinho e a reprodução 
   await new Promise((r) => setTimeout(r, 500));
   assert.ok(t.maint.classList.contains('hidden'), 'fechou por inatividade');
   assert.deepEqual(t.holds.slice(-1), [false], 'som volta');
+});
+
+test('fechar: o painel tem o botão Fechar o Player (com confirmação) e os controles da janela funcionam sem abrir o painel', async () => {
+  const actions = [];
+  const t = setup({ action: async (_t, a) => (actions.push(a), { ok: true, message: 'feito' }) });
+  await t.tick();
+  await t.tap(/Fechar o Player/);
+  assert.match(t.text(), /Fechar o Player?/);
+  await t.click(/^Cancelar$/);
+  assert.deepEqual(actions, [], 'cancelar não fecha');
+  await t.tap(/Fechar o Player/);
+  await t.click(/^Confirmar$/);
+  assert.deepEqual(actions, ['quit']);
 });

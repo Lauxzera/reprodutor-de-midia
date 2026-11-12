@@ -13,6 +13,7 @@ const { StatusReporter } = require('./reporter');
 const { createLogger, readLogTail } = require('./logger');
 const { Watchdog } = require('./watchdog');
 const { Security } = require('./security');
+const { canClose } = require('./closepolicy');
 
 const argv = process.argv.slice(2);
 const windowed = argv.includes('--windowed') || Boolean(process.env.PLAYER_WINDOWED);
@@ -120,6 +121,7 @@ function main() {
     configFile: config.file,
     version: app.getVersion(),
     windowMode: winMode,
+    windowed,
     display: config.display,
     media: engine.manifest
       ? engine.manifest.items.map((it) => {
@@ -495,10 +497,13 @@ function main() {
 
     // Alt+F4 e afins não fecham o player; só a manutenção (ou o desligamento do Windows).
     win.on('close', (e) => {
-      if (!windowed && !quitting) {
-        e.preventDefault();
-        log('Tentativa de fechar a janela bloqueada');
+      if (canClose({ windowed, quitting, winMode, minimized: win.isMinimized() })) {
+        if (!quitting) log('Player fechado pela janela ou pela barra de tarefas');
+        quitting = true;
+        return;
       }
+      e.preventDefault();
+      log('Tentativa de fechar a janela bloqueada (tela cheia)');
     });
 
     // Atalho de atalho para desenvolvimento: só em modo janela.

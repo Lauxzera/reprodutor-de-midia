@@ -267,4 +267,16 @@ body.maint-open #idle-open { display: none; }
   #corner.holding .ring .fill { animation-duration: 1.5s; }
 }
 
+/* barra de título do Player em janela comum (o Windows não desenha uma: a janela é sem moldura) */
+#winctl { position: fixed; top: 0; left: 0; right: 0; height: 52px; z-index: 18; display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 8px 0 16px; background: rgba(20, 22, 26, 0.82); -webkit-app-region: drag; }
+#winctl.hidden { display: none; }
+#winctl .title { margin-right: auto; color: #9097a3; font: 15px 'Segoe UI', system-ui, sans-serif; }
+#winctl button { -webkit-app-region: no-drag; min-width: 64px; height: 40px; border: 1px solid #2e333d; border-radius: 8px; background: #242830; color: #e6e8ec; font: 20px 'Segoe UI', system-ui, sans-serif; cursor: pointer; touch-action: manipulation; }
+#winctl button:active { background: #3a3f4b; }
+#winctl button.close { background: #5a2226; border-color: #8a3036; }
+#winctl button.close:active { background: #ef5b5b; }
+body.maint-open #winctl { display: none; }
+#maint .winbtn.danger { border-color: #8a3036; color: #ff9d9d; }
+#maint .winbtn.danger:hover { border-color: #ef5b5b; }
+
 .hidden { display: none !important; }

@@ -16,6 +16,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const withTimeout = (promise, ms, what) =>
   Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what}: tempo esgotado`)), ms))]);
 
+// Em janela comum (sem barra de título do Windows) o Player mostra a sua: minimizar, tela cheia e fechar.
+function applyWindowControls() {
+  const w = document.getElementById('winctl');
+  if (w) w.classList.toggle('hidden', !(state && state.windowMode === 'window' && !state.windowed));
+}
+
 function applyUpdateBadge() {
   const c = document.getElementById('corner');
   if (c) c.classList.toggle('has-update', Boolean(state && state.update && state.update.newer));
@@ -229,10 +235,12 @@ async function boot() {
   state = await api.getState();
   applySettings(state);
   applyUpdateBadge();
+  applyWindowControls();
   api.onChanged((s) => {
     state = s;
     applySettings(s);
     applyUpdateBadge();
+  applyWindowControls();
     renderDebug();
   });
   api.heartbeat();

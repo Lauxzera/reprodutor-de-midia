@@ -41,7 +41,7 @@
         resolve(v);
       };
       const overlay = el('div', { class: 'modal' }, el('div', { class: 'dialog', role: 'alertdialog', 'aria-modal': 'true' }, el('p', {}, text), el('div', { class: 'row' }, el('button', { class: 'primary', onclick: () => done(true) }, okLabel), el('button', { onclick: () => done(false) }, 'Cancelar'))));
-      root.append(overlay);
+      document.body.append(overlay);
     });
   }
 
@@ -185,7 +185,7 @@
           'div',
           { class: 'winbar' },
           el('h1', {}, 'Reprodutor Player'),
-          el('div', { class: 'winbtns' }, el('button', { class: 'winbtn', onclick: needAuth(run('minimize'), true) }, 'Minimizar'), el('button', { class: 'winbtn', onclick: needAuth(run('window-toggle'), true) }, inWindow ? 'Tela cheia' : 'Janela')),
+          el('div', { class: 'winbtns' }, el('button', { class: 'winbtn', onclick: needAuth(run('minimize'), true) }, 'Minimizar'), el('button', { class: 'winbtn', onclick: needAuth(run('window-toggle'), true) }, inWindow ? 'Tela cheia' : 'Janela'), el('button', { class: 'winbtn danger', onclick: needAuth(run('quit', 'Fechar o Player? A TV ficará sem conteúdo até abri-lo de novo.'), false) }, 'Fechar o Player')),
         ),
         el(
           'div',
@@ -528,6 +528,19 @@
     if (!e.detail) open(); // acionado pelo teclado (Enter/Espaço no botão)
   });
   window.addEventListener('contextmenu', (e) => e.preventDefault()); // toque longo não abre menu do navegador
+
+  // Barra de título do Player em janela comum: minimizar, tela cheia e fechar, direto, sem abrir o painel.
+  const winctl = document.getElementById('winctl');
+  if (winctl) {
+    winctl.addEventListener('click', async (e) => {
+      const b = e.target && e.target.closest ? e.target.closest('button') : e.target;
+      const act = b && b.dataset && b.dataset.act;
+      if (!act) return;
+      if (act === 'quit' && !(await ask('Fechar o Player? A TV ficará sem conteúdo até abri-lo de novo.', 'Fechar o Player'))) return;
+      const t = token || (await api.maint.session()).token;
+      await api.maint.action(t, act);
+    });
+  }
 
   if (window.VKB) kb = window.VKB.attach(root, { paste: async () => ((await api.maint.paste(token || (await api.maint.session()).token)) || {}).text || '' });
 
