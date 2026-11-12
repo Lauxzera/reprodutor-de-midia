@@ -19,6 +19,10 @@ const windowed = argv.includes('--windowed') || Boolean(process.env.PLAYER_WINDO
 const dirArg = argv.find((a) => a.startsWith('--data-dir='));
 const dataDir = process.env.PLAYER_DATA_DIR || (dirArg ? dirArg.slice('--data-dir='.length) : path.join(app.getPath('userData'), 'data'));
 
+// Totem touch: sem zoom por gesto de pinça e sem voltar/avançar por deslize nas bordas.
+app.commandLine.appendSwitch('disable-pinch');
+app.commandLine.appendSwitch('overscroll-history-navigation', '0');
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -245,6 +249,15 @@ function main() {
   const credsOf = (c) => ({ baseUrl: c.baseUrl, keyId: c.keyId, secretKey: c.secretKey, region: c.region });
 
   // Cola um código de pareamento: valida, guarda as credenciais só no processo principal e devolve as telas publicadas.
+  // Sem teclado: acha o pair.txt (pendrive, Downloads, Área de Trabalho) e devolve o código para o painel aplicar.
+  ipcMain.handle('maint:find-pair', (_e, token) => {
+    if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
+    const found = findPairFile({ dataDir });
+    if (!found) return { ok: false, error: 'Não encontrei o pair.txt. Coloque-o num pendrive (raiz), em Downloads ou na Área de Trabalho e tente de novo.' };
+    log(`pair.txt encontrado pelo painel: ${found.file}`);
+    return { ok: true, text: found.code, file: found.file };
+  });
+
   ipcMain.handle('maint:apply-pair', async (_e, token, code) => {
     if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
     let p;

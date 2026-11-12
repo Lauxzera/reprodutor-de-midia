@@ -58,26 +58,6 @@ html, body {
 }
 
 body.maint-open, body.show-cursor { cursor: default; }
-#corner {
-  position: fixed;
-  bottom: 12px;
-  right: 12px;
-  z-index: 15;
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 8px;
-  background: rgba(20, 22, 26, 0.5);
-  color: #fff;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0.1; /* quase invisível sobre o vídeo; sempre clicável */
-  transition: opacity 0.2s;
-}
-#corner.has-update { opacity: 0.3; } /* há versão nova: um pouco mais visível, com um ponto laranja */
-#corner.has-update::after { content: ''; position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; border-radius: 50%; background: #f2b84b; }
-#corner:hover, #corner:focus-visible { opacity: 1; background: rgba(76, 141, 255, 0.9); }
 body.maint-open #corner { display: none; }
 
 #maint {
@@ -193,6 +173,89 @@ body.maint-open #corner { display: none; }
 @media (pointer: coarse) {
   #maint button { min-height: 56px; }
   #maint .winbtn { min-height: 52px; }
+}
+
+/* ---------- totem touch: sem seleção de texto, sem zoom, alvos grandes ---------- */
+html, body { -webkit-user-select: none; user-select: none; touch-action: none; -webkit-tap-highlight-color: transparent; }
+#maint input, #maint textarea { -webkit-user-select: text; user-select: text; }
+img { -webkit-user-drag: none; }
+
+#maint .box { font-size: 17px; }
+#maint .box.wide { width: min(1100px, 96vw); }
+#maint h1 { font-size: 22px; }
+#maint .lbl { color: #9097a3; font-size: 14px; margin-bottom: 6px; }
+#maint .field { display: flex; flex-direction: column; }
+
+/* grupos de opções (no lugar de listas suspensas) */
+#maint .choice { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
+#maint .choice .opt { min-height: 60px; padding: 8px 10px; line-height: 1.2; }
+#maint .choice .opt[aria-pressed='true'] { background: #4c8dff; border-color: #4c8dff; color: #fff; font-weight: 600; }
+#maint .volrow { align-items: center; justify-content: space-between; }
+#maint .volrow button { min-width: 72px; font-size: 26px; }
+#maint .volrow .vol { font-size: 26px; }
+#maint input[type=range] { width: 100%; box-sizing: border-box; padding: 0; min-height: 48px; accent-color: #4c8dff; }
+
+/* barra de ações fixa no rodapé das telas de ajuste: Salvar/Voltar sempre à vista */
+#maint .footbar { position: sticky; bottom: 0; z-index: 3; padding: 12px 0 4px; background: linear-gradient(to top, #1c1f25 75%, transparent); }
+#maint .footbar button { flex: 1 1 160px; min-height: 60px; font-size: 18px; }
+
+/* confirmação no próprio painel */
+.modal { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.7); }
+.dialog { width: min(520px, 100%); background: #1c1f25; border: 1px solid #4c8dff; border-radius: 14px; padding: 22px; display: flex; flex-direction: column; gap: 16px; font-size: 18px; color: #e6e8ec; }
+.dialog p { margin: 0; color: #e6e8ec; }
+.dialog .row { display: flex; gap: 10px; }
+.dialog button { flex: 1; min-height: 60px; font-size: 18px; border-radius: 8px; border: 1px solid #2e333d; background: #242830; color: inherit; cursor: pointer; font-family: inherit; }
+.dialog button.primary { background: #4c8dff; border-color: #4c8dff; color: #fff; }
+.dialog button:focus-visible { outline: 3px solid #8db8ff; outline-offset: 2px; }
+
+/* teclado na tela */
+#vkb { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; padding: 10px 10px 14px; background: #14161a; border-top: 1px solid #2e333d; display: flex; flex-direction: column; gap: 8px; touch-action: manipulation; }
+#vkb.hidden { display: none; }
+#vkb .vk-row { display: flex; gap: 6px; justify-content: center; }
+#vkb .vk { flex: 1 1 0; max-width: 92px; min-height: clamp(40px, 7.5vh, 64px); padding: 0; border-radius: 8px; border: 1px solid #2e333d; background: #242830; color: #e6e8ec; font: 22px 'Segoe UI', system-ui, sans-serif; cursor: pointer; }
+#vkb .vk:active { background: #4c8dff; border-color: #4c8dff; }
+#vkb .vk.fn { background: #1c1f25; max-width: 120px; flex-grow: 1.4; }
+#vkb .vk.wide { max-width: none; flex-grow: 5; font-size: 16px; }
+#vkb .vk[aria-pressed='true'] { background: #4c8dff; border-color: #4c8dff; color: #fff; }
+#vkb .vk.lock { box-shadow: inset 0 -4px 0 #f2b84b; }
+#vkb .vk-tools .vk { max-width: none; font-size: 17px; min-height: clamp(40px, 6.5vh, 56px); }
+#vkb .vk-tools .vk[data-key='ENTER'] { background: #4c8dff; border-color: #4c8dff; color: #fff; font-weight: 600; flex-grow: 2; }
+body.vkb-open #maint { padding-bottom: var(--vkb-h, 0px); }
+body.vkb-open #maint .footbar { position: static; background: none; }
+
+/* botão do painel no canto: toque longo */
+#corner { position: fixed; z-index: 15; border: 0; cursor: pointer; width: 96px; height: 96px; right: 0; bottom: 0; background: none; border-radius: 0; opacity: 1; display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 14px 14px 0; touch-action: none; }
+#corner .gear { position: relative; z-index: 1; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(20, 22, 26, 0.5); color: #fff; font-size: 24px; opacity: 0.12; transition: opacity 0.2s; }
+#corner .ring { position: absolute; right: 8px; bottom: 8px; width: 56px; height: 56px; transform: rotate(-90deg); pointer-events: none; }
+#corner .ring circle { fill: none; stroke-width: 4; }
+#corner .ring .track { stroke: transparent; }
+#corner .ring .fill { stroke: #8db8ff; stroke-linecap: round; stroke-dasharray: 158; stroke-dashoffset: 158; }
+#corner.holding .gear { opacity: 1; background: rgba(76, 141, 255, 0.9); }
+#corner.holding .ring .track { stroke: rgba(255, 255, 255, 0.25); }
+#corner.holding .ring .fill { animation: hold-fill 1.5s linear forwards; }
+@keyframes hold-fill { to { stroke-dashoffset: 0; } }
+#corner.has-update .gear { opacity: 0.3; }
+#corner.has-update .gear::after { content: ''; position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; border-radius: 50%; background: #f2b84b; }
+#corner:hover .gear, #corner:focus-visible .gear { opacity: 1; background: rgba(76, 141, 255, 0.9); }
+#corner:focus-visible { outline: none; }
+#corner-hint { position: fixed; right: 12px; bottom: 104px; z-index: 16; max-width: min(320px, 80vw); padding: 12px 16px; border-radius: 10px; background: rgba(20, 22, 26, 0.92); color: #fff; font-size: 17px; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+#corner-hint.show { opacity: 1; }
+body.maint-open #corner-hint { display: none; }
+
+/* tela ociosa: botão grande para abrir o painel */
+#idle-open { margin-top: 18px; min-height: 64px; padding: 0 32px; font-size: 20px; border-radius: 12px; border: 1px solid #4c8dff; background: #4c8dff; color: #fff; cursor: pointer; font-family: inherit; }
+#idle-open:active { background: #3a78e6; }
+body.maint-open #idle-open { display: none; }
+
+@media (pointer: coarse) {
+  #maint .box { font-size: 19px; }
+  #maint .tile { min-height: 84px; }
+  #maint .tile b { font-size: 19px; }
+  #maint .winbtn { min-height: 56px; font-size: 18px; }
+  #vkb .vk { min-height: clamp(44px, 7.5vh, 68px); font-size: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #corner.holding .ring .fill { animation-duration: 1.5s; }
 }
 
 .hidden { display: none !important; }

@@ -12,11 +12,17 @@
   <div id="idle" class="hidden">
     <div id="idle-title">Sem conteúdo para exibir</div>
     <div id="idle-detail"></div>
+    <button id="idle-open" type="button">Abrir painel</button>
   </div>
   <pre id="debug" class="hidden"></pre>
-  <button id="corner" type="button" title="Manutenção (minimizar, configurações)" aria-label="Manutenção">&#9881;</button>
+  <button id="corner" type="button" aria-label="Painel de manutenção: segure para abrir">
+    <svg class="ring" viewBox="0 0 56 56" aria-hidden="true"><circle class="track" cx="28" cy="28" r="25"></circle><circle class="fill" cx="28" cy="28" r="25"></circle></svg>
+    <span class="gear">&#9881;</span>
+  </button>
+  <div id="corner-hint" role="status">Segure por 1,5 segundo para abrir o painel</div>
   <div id="maint" class="hidden"></div>
   <script src="player.js"></script>
+  <script src="vkb.js"></script>
   <script src="maintenance.js"></script>
 </body>
 </html>

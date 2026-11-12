@@ -8,6 +8,8 @@
 
   function el(tag, attrs, ...children) {
     const node = document.createElement(tag);
+    // Sem o teclado do Windows: o teclado na tela do Player (vkb.js) cuida da digitação.
+    if (tag === 'input' || tag === 'textarea') node.setAttribute('inputmode', 'none');
     for (const [k, v] of Object.entries(attrs || {})) {
       if (k === 'class') node.className = v;
       else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
@@ -15,6 +17,32 @@
     }
     for (const c of children.flat()) if (c != null) node.append(c instanceof Node ? c : document.createTextNode(String(c)));
     return node;
+  }
+
+  // Grupo de botões grandes (substitui <select>, que é pequeno e ruim no toque).
+  function choice(options, value, onpick) {
+    const wrap = el('div', { class: 'choice', role: 'group' });
+    let cur = value;
+    const draw = () =>
+      wrap.replaceChildren(
+        ...options.map(([v, label]) =>
+          el('button', { type: 'button', class: 'opt', 'aria-pressed': String(v === cur), onclick: () => { cur = v; draw(); if (onpick) onpick(v); } }, label),
+        ),
+      );
+    draw();
+    return { node: wrap, get: () => cur };
+  }
+
+  // Confirmação dentro do próprio painel (botões grandes; o diálogo nativo é pequeno no toque).
+  function ask(text, okLabel = 'Confirmar') {
+    return new Promise((resolve) => {
+      const done = (v) => {
+        overlay.remove();
+        resolve(v);
+      };
+      const overlay = el('div', { class: 'modal' }, el('div', { class: 'dialog', role: 'alertdialog', 'aria-modal': 'true' }, el('p', {}, text), el('div', { class: 'row' }, el('button', { class: 'primary', onclick: () => done(true) }, okLabel), el('button', { onclick: () => done(false) }, 'Cancelar'))));
+      root.append(overlay);
+    });
   }
 
   const AUTO_START_SECS = 60; // sem mexer no painel, a reprodução começa sozinha depois disso
@@ -32,6 +60,7 @@
   };
   let busy = false; // baixando a atualização: não redesenha a tela
 
+  let kb = null; // teclado na tela (vkb.js)
   const isOpen = () => !root.classList.contains('hidden');
   const hold = (h) => window.__hold && window.__hold(h);
 
@@ -42,6 +71,7 @@
   }
 
   function close() {
+    hideKb();
     token = null;
     view = '';
     afterLogin = null;
@@ -65,7 +95,8 @@
     showHome();
   }
 
-  const box = (...children) => root.replaceChildren(el('div', { class: 'box' }, ...children));
+  const hideKb = () => kb && kb.hide();
+  const box = (...children) => (hideKb(), root.replaceChildren(el('div', { class: 'box' }, ...children)));
   const secs = (ms) => Math.ceil(ms / 1000);
   const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
   const STATE_LABEL = { online: 'Conectado', idle: 'Conectado', offline: 'Sem conexão', error: 'Com erro', downloading: 'Baixando mídias', checking: 'Verificando' };
@@ -97,7 +128,7 @@
     msgEl = msg;
 
     const run = (action, confirmText) => async () => {
-      if (confirmText && !window.confirm(confirmText)) return;
+      if (confirmText && !(await ask(confirmText))) return;
       const r = await api.maint.action(token, action);
       if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       if (action === 'minimize' || action === 'windows-settings') {
@@ -114,7 +145,7 @@
     };
 
     const doUpdate = async () => {
-      if (!window.confirm(`Atualizar para a v${up.latest}? O player baixa, fecha, instala e reabre sozinho (cerca de um minuto; a TV fica sem imagem nesse tempo).`)) return;
+      if (!(await ask(`Atualizar para a v${up.latest}? O player baixa, fecha, instala e reabre sozinho (cerca de um minuto; a TV fica sem imagem nesse tempo).`, 'Atualizar'))) return;
       setMsg('Baixando a atualização… 0%');
       if (progressEl) progressEl.value = 0;
       busy = true;
@@ -145,6 +176,7 @@
 
     const tile = (title, desc, onclick, cls = '') => el('button', { class: `tile ${cls}`.trim(), onclick }, el('b', {}, title), el('span', {}, desc));
 
+    hideKb();
     root.replaceChildren(
       el(
         'div',
@@ -200,28 +232,32 @@
     stopCountdown();
     const s = await api.getState();
     const d = s.display || { fit: 'auto', rotate: 0, volume: 100 };
-    const fit = el('select', {}, el('option', { value: 'auto' }, 'Seguir a playlist'), el('option', { value: 'contain' }, 'Mostrar inteira (barras pretas)'), el('option', { value: 'cover' }, 'Preencher a tela (corta as bordas)'), el('option', { value: 'fill' }, 'Esticar'));
-    fit.value = d.fit;
-    const rotate = el('select', {}, ...[0, 90, 180, 270].map((g) => el('option', { value: String(g) }, `${g}°`)));
-    rotate.value = String(d.rotate);
-    const volume = el('input', { type: 'range', min: '0', max: '100', step: '5' });
-    volume.value = String(d.volume);
-    const volLabel = el('span', {}, `${d.volume}%`);
-    volume.addEventListener('input', () => (volLabel.textContent = `${volume.value}%`));
+    const fit = choice([['auto', 'Seguir a playlist'], ['contain', 'Inteira (barras pretas)'], ['cover', 'Preencher (corta as bordas)'], ['fill', 'Esticar']], d.fit);
+    const rotate = choice([[0, '0°'], [90, '90°'], [180, '180°'], [270, '270°']], Number(d.rotate));
+    let vol = d.volume;
+    const volLabel = el('b', { class: 'vol' }, `${vol}%`);
+    const volume = el('input', { type: 'range', min: '0', max: '100', step: '5', 'aria-label': 'Volume' });
+    const setVol = (n) => {
+      vol = Math.max(0, Math.min(100, Math.round(n)));
+      volume.value = String(vol);
+      volLabel.textContent = `${vol}%`;
+    };
+    volume.value = String(vol);
+    volume.addEventListener('input', () => setVol(Number(volume.value)));
     const msg = el('div', { class: 'msg' });
     const save = async () => {
-      const r = await api.maint.setDisplay(token, { fit: fit.value, rotate: Number(rotate.value), volume: Number(volume.value) });
+      const r = await api.maint.setDisplay(token, { fit: fit.get(), rotate: Number(rotate.get()), volume: vol });
       if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.', showDisplay);
       msg.textContent = r.ok ? r.message : r.error;
     };
     box(
       el('h1', {}, 'Exibição'),
       el('p', {}, 'Vale só para este player e se aplica na hora.'),
-      el('label', {}, 'Ajuste da imagem', fit),
-      el('label', {}, 'Rotação da tela', rotate),
-      el('label', {}, 'Volume', volume, volLabel),
+      el('div', { class: 'field' }, el('div', { class: 'lbl' }, 'Ajuste da imagem'), fit.node),
+      el('div', { class: 'field' }, el('div', { class: 'lbl' }, 'Rotação da tela'), rotate.node),
+      el('div', { class: 'field' }, el('div', { class: 'lbl' }, 'Volume'), el('div', { class: 'row volrow' }, el('button', { type: 'button', 'aria-label': 'Diminuir o volume', onclick: () => setVol(vol - 10) }, '−'), volLabel, el('button', { type: 'button', 'aria-label': 'Aumentar o volume', onclick: () => setVol(vol + 10) }, '+')), volume),
       msg,
-      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: save }, 'Salvar'), el('button', { onclick: () => showHome('') }, 'Voltar')),
+      el('div', { class: 'row footbar' }, el('button', { class: 'primary', onclick: save }, 'Salvar'), el('button', { onclick: () => showHome('') }, 'Voltar')),
     );
   }
 
@@ -231,9 +267,10 @@
     const cur = await api.maint.getConfig(token);
     if (!cur.ok) return showLogin('Sessão renovada. Tente de novo.');
 
-    const code = el('textarea', { rows: '3', placeholder: 'Cole aqui o código de pareamento (começa com RM1-). Ele está na aba Publicar do painel.' });
+    const code = el('textarea', { rows: '3', placeholder: 'Código de pareamento (começa com RM1-). Está em Conectar TV, no painel do admin.' });
     const status = el('div', { class: 'msg' });
-    const screenSel = el('select', {});
+    const screenBox = el('div', { class: 'choice', role: 'group' });
+    let pickedScreen = '';
     const screenId = el('input', { type: 'text', placeholder: 'ou digite o ID da tela', value: cur.screenId || '' });
     const poll = el('input', { type: 'number', min: '5', max: '3600', value: String(cur.pollSeconds || 120) });
     const baseUrl = el('input', { type: 'text', placeholder: 'https://s3.<região>.backblazeb2.com/<bucket>', value: cur.baseUrl || '' });
@@ -243,15 +280,16 @@
     let paired = false; // credenciais do código estão guardadas no processo principal
 
     const fillScreens = (ids, keep) => {
-      screenSel.replaceChildren(el('option', { value: '' }, ids.length ? 'Escolha a tela…' : 'Nenhuma tela publicada ainda'), ...ids.map((id) => el('option', { value: id }, id)));
       const want = keep || screenId.value;
-      if (want && ids.includes(want)) screenSel.value = want;
-      else if (ids.length === 1) screenSel.value = ids[0];
-      if (screenSel.value) screenId.value = screenSel.value;
+      if (want && ids.includes(want)) pickedScreen = want;
+      else if (ids.length === 1) pickedScreen = ids[0];
+      if (pickedScreen) screenId.value = pickedScreen;
+      screenBox.replaceChildren(
+        ...(ids.length
+          ? ids.map((id) => el('button', { type: 'button', class: 'opt', 'aria-pressed': String(id === pickedScreen), onclick: () => { pickedScreen = id; screenId.value = id; fillScreens(ids, id); } }, id))
+          : [el('p', {}, 'Nenhuma tela publicada ainda')]),
+      );
     };
-    screenSel.addEventListener('change', () => {
-      if (screenSel.value) screenId.value = screenSel.value;
-    });
     fillScreens(cur.screens || []);
 
     const refreshScreens = async () => {
@@ -296,6 +334,20 @@
       await applyCode();
     };
 
+    // Sem teclado: procura o pair.txt (pendrive, Downloads, Área de Trabalho) e usa o código que estiver lá.
+    const findPair = async () => {
+      status.textContent = 'Procurando o pair.txt…';
+      const r = await api.maint.findPair(token);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
+      if (!r.ok) {
+        status.textContent = r.error;
+        return;
+      }
+      code.value = r.text;
+      await applyCode();
+      if (paired) status.textContent = `pair.txt encontrado em ${r.file}. ${status.textContent}`;
+    };
+
     // Compatibilidade: ainda aceita colar o JSON antigo no campo da URL.
     baseUrl.addEventListener('input', () => {
       const text = baseUrl.value.trim();
@@ -324,18 +376,17 @@
 
     box(
       el('h1', {}, 'Conexão com o bucket'),
-      el('p', {}, 'Cole o código de pareamento do painel e escolha a tela. Só isso.'),
-      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: pasteCode }, 'Colar código copiado')),
+      el('p', {}, 'Use o pair.txt do pendrive ou cole o código de pareamento do painel e escolha a tela.'),
+      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: findPair }, 'Procurar pair.txt (pendrive ou Downloads)'), el('button', { onclick: pasteCode }, 'Colar código copiado')),
       el('label', {}, 'Código de pareamento', code),
       status,
-      el('label', {}, 'Tela', screenSel),
+      el('div', { class: 'field' }, el('div', { class: 'lbl' }, 'Tela'), screenBox),
       el('div', { class: 'row' }, el('button', { onclick: refreshScreens }, 'Atualizar lista')),
       el('label', {}, 'Consultar a cada (segundos)', poll),
       el('details', {}, el('summary', {}, 'Avançado: preencher à mão'), el('label', {}, 'URL do bucket', baseUrl), el('label', {}, 'keyID de leitura', keyId), el('label', {}, 'applicationKey de leitura', secret), el('label', {}, 'ID da tela', screenId)),
       msg,
-      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: save }, 'Salvar e reiniciar'), el('button', { onclick: () => showHome('') }, 'Voltar')),
+      el('div', { class: 'row footbar' }, el('button', { class: 'primary', onclick: save }, 'Salvar e reiniciar'), el('button', { onclick: () => showHome('') }, 'Voltar')),
     );
-    code.focus();
   }
 
   async function showMenu(message = '') {
@@ -348,7 +399,7 @@
     const msg = el('div', { class: 'msg' }, message);
 
     const run = (action, confirmText) => async () => {
-      if (confirmText && !window.confirm(confirmText)) return;
+      if (confirmText && !(await ask(confirmText))) return;
       const r = await api.maint.action(token, action);
       if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
       if (action === 'sync') return showMenu(r.message);
@@ -363,7 +414,7 @@
       showMenu(r.ok ? (r.info.newer ? `Nova versão disponível: v${r.info.latest}.` : `Já está na versão mais recente (v${r.info.current}).`) : `Não consegui verificar: ${r.error}`);
     };
     const doUpdate = async () => {
-      if (!window.confirm(`Atualizar para a v${up.latest}? O player baixa, fecha, instala e reabre sozinho (cerca de um minuto; a TV fica sem imagem nesse tempo).`)) return;
+      if (!(await ask(`Atualizar para a v${up.latest}? O player baixa, fecha, instala e reabre sozinho (cerca de um minuto; a TV fica sem imagem nesse tempo).`, 'Atualizar'))) return;
       msg.textContent = 'Baixando a atualização…';
       const r = await api.maint.updateInstall(token);
       if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.');
@@ -406,10 +457,22 @@
     );
   }
 
-  // Mexer no painel adia o início automático da reprodução.
+  // Mexer no painel adia o início automático da reprodução. Parado por 3 minutos em qualquer tela,
+  // o painel fecha e a reprodução volta (um totem sem ninguém por perto nunca fica parado nas configurações).
+  const IDLE_CLOSE_MS = window.__IDLE_MS || 180000;
+  let lastTouch = Date.now();
   const bump = () => {
     secsLeft = AUTO_START_SECS;
+    lastTouch = Date.now();
   };
+  const watchIdle = () => {
+    const t = setTimeout(() => {
+      if (isOpen() && !busy && Date.now() - lastTouch > IDLE_CLOSE_MS) close();
+      watchIdle();
+    }, window.__IDLE_POLL_MS || 5000);
+    if (t && t.unref) t.unref();
+  };
+  watchIdle();
   window.addEventListener('mousemove', bump);
   window.addEventListener('click', bump);
   window.addEventListener('pointerdown', bump);
@@ -425,15 +488,48 @@
     }
   });
 
-  // Botão ⚙ no canto superior direito: sempre presente, com opacidade bem baixa (10%) para não atrapalhar o vídeo; sobe a 100% ao passar o mouse.
+  // Botão ⚙ no canto inferior direito: quase invisível sobre o vídeo e aberto com TOQUE LONGO (1,5 s),
+  // para que ninguém abra as configurações sem querer num totem público. O anel mostra o andamento.
   const corner = document.getElementById('corner');
+  const hint = document.getElementById('corner-hint');
   let cursorTimer = null;
-  window.addEventListener('mousemove', (e) => {
+  window.addEventListener('mousemove', () => {
     document.body.classList.add('show-cursor');
     clearTimeout(cursorTimer);
     cursorTimer = setTimeout(() => document.body.classList.remove('show-cursor'), 3000);
   });
-  corner.addEventListener('click', () => open());
+  const HOLD_MS = window.__HOLD_MS || 1500;
+  let holdTimer = null;
+  let hintTimer = null;
+  const endHold = (opened) => {
+    if (holdTimer) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      if (!opened && hint) {
+        hint.classList.add('show');
+        clearTimeout(hintTimer);
+        hintTimer = setTimeout(() => hint.classList.remove('show'), 2500);
+      }
+    }
+    corner.classList.remove('holding');
+  };
+  corner.addEventListener('pointerdown', (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (holdTimer) return;
+    corner.classList.add('holding');
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      endHold(true);
+      open();
+    }, HOLD_MS);
+  });
+  for (const t of ['pointerup', 'pointercancel', 'pointerleave']) corner.addEventListener(t, () => endHold(false));
+  corner.addEventListener('click', (e) => {
+    if (!e.detail) open(); // acionado pelo teclado (Enter/Espaço no botão)
+  });
+  window.addEventListener('contextmenu', (e) => e.preventDefault()); // toque longo não abre menu do navegador
+
+  if (window.VKB) kb = window.VKB.attach(root, { paste: async () => ((await api.maint.paste(token || (await api.maint.session()).token)) || {}).text || '' });
 
   // Andamento do download da atualização (aparece na linha de mensagem do menu).
   if (api.onUpdateProgress) {

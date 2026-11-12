@@ -21,6 +21,8 @@ function applyUpdateBadge() {
   if (c) c.classList.toggle('has-update', Boolean(state && state.update && state.update.newer));
 }
 
+document.addEventListener('contextmenu', (e) => e.preventDefault()); // toque longo não abre menu
+
 let held = false; // painel aberto: o som da reprodução fica mudo por baixo
 
 const volumeOf = () => (state && state.display ? state.display.volume : 100) / 100;
@@ -69,14 +71,19 @@ function renderDebug() {
 function showIdle(show) {
   idleEl.classList.toggle('hidden', !show);
   if (!show || !state) return;
+  const openBtn = document.getElementById('idle-open');
+  if (openBtn && !openBtn.dataset.bound) {
+    openBtn.dataset.bound = '1';
+    openBtn.addEventListener('click', () => window.__openMaint && window.__openMaint());
+  }
   idleDetail.textContent = playProblem
     ? playProblem
     : state.needsScreen
     ? state.screenChoices && state.screenChoices.length > 1
-      ? `Há ${state.screenChoices.length} telas publicadas. Pressione Ctrl+Shift+M > Configurar conexão para escolher a deste player.`
+      ? `Há ${state.screenChoices.length} telas publicadas. Abra o painel (botão abaixo) e escolha a deste player em Conexão com o admin.`
       : 'Pareado. Aguardando uma tela ser publicada pelo painel…'
     : !state.configured
-    ? 'Player não configurado. Pressione Ctrl+Shift+M (ou o botão do canto) para colar o código de pareamento.'
+    ? 'Player não configurado. Toque em Abrir painel, depois em Conexão com o admin.'
     : state.status && state.status.state === 'downloading'
       ? state.status.message
       : state.status && state.status.state === 'error'

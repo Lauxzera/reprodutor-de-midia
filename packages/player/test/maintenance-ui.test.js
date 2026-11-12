@@ -33,7 +33,14 @@ class FakeNode {
     (this.handlers[type] ||= []).push(fn);
   }
   append(...kids) {
-    for (const k of kids) this.children.push(typeof k === 'string' ? Object.assign(new FakeNode('#text'), { _text: k }) : k);
+    for (const k of kids) {
+      const node = typeof k === 'string' ? Object.assign(new FakeNode('#text'), { _text: k }) : k;
+      node.parent = this;
+      this.children.push(node);
+    }
+  }
+  remove() {
+    if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this);
   }
   replaceChildren(...kids) {
     this.children = [];
@@ -59,7 +66,7 @@ class FakeNode {
   }
 }
 
-function setup(apiOverrides = {}) {
+function setup(apiOverrides = {}, opts = {}) {
   const maint = new FakeNode('div');
   maint.classSet.add('hidden');
   const corner = new FakeNode('button');
@@ -113,6 +120,7 @@ function setup(apiOverrides = {}) {
   const errors = [];
   api.onUpdateProgress = () => {};
   const win = { playerApi: api, innerWidth: 1280, addEventListener: (t, fn) => (windowHandlers[t] ||= []).push(fn), confirm: () => true };
+  Object.assign(win, opts.win || {});
   const intervals = [];
   const holds = [];
   win.__hold = (h) => holds.push(h);
@@ -121,6 +129,13 @@ function setup(apiOverrides = {}) {
   vm.runInNewContext(fs.readFileSync(process.env.MAINT_JS || path.join(__dirname, '../src/renderer/maintenance.js'), 'utf8'), sandbox);
   const tick = () => new Promise((r) => setTimeout(r, 20));
   const button = (re) => maint.all((n) => n.tagName === 'BUTTON' && re.test(n.innerText))[0];
+  // clique sem esperar o fim do tratador (usado quando ele abre uma confirmação e fica aguardando a resposta)
+  const tap = async (re) => {
+    const b = button(re);
+    assert.ok(b, `botão "${re}" não encontrado; tela: ${maint.innerText}`);
+    for (const fn of b.handlers.click || []) fn({});
+    await tick();
+  };
   const click = async (re) => {
     const b = button(re);
     assert.ok(b, `botão "${re}" não encontrado; tela: ${maint.innerText}`);
@@ -133,7 +148,7 @@ function setup(apiOverrides = {}) {
     await tick();
   };
   const inputs = () => maint.all((n) => n.tagName === 'INPUT');
-  return { maint, corner, click, press, inputs, tick, errors, body, intervals, holds };
+  return { maint, corner, click, tap, press, inputs, tick, errors, body, intervals, holds, win };
 }
 
 const openCorner = async (t) => {
@@ -216,7 +231,10 @@ test('painel inicial: aviso de versão nova, barra de progresso e botão Atualiz
   assert.ok(t.maint.innerText.includes('v0.1.5 disponível'));
   const bar = t.maint.all((n) => n.tagName === 'PROGRESS')[0];
   assert.ok(bar, 'barra de download presente');
-  await t.click(/Atualizar para v/);
+  await t.tap(/Atualizar para v/);
+  assert.match(t.maint.innerText, /Atualizar para a v0\.1\.5\?/);
+  assert.deepEqual(calls, [], 'só atualiza depois de confirmar');
+  await t.click(/^Atualizar$/);
   assert.deepEqual(calls, ['install']);
   assert.ok(t.maint.innerText.includes('Instalando v0.1.5'));
   assert.deepEqual(t.errors, []);
@@ -278,4 +296,102 @@ test('sem senha: nenhuma tela de login aparece em nenhum botão', async () => {
     assert.ok(!/senha|Entrar/i.test(t.maint.innerText), `${re} não pode pedir senha`);
     await t.click(/Voltar/);
   }
+});
+
+// ---------- totem touch (sem mouse e sem teclado) ----------
+
+const fire = (node, type, e = {}) => (node.handlers[type] || []).forEach((fn) => fn({ preventDefault() {}, ...e }));
+
+test('touch: o canto abre o painel só com toque longo; toque curto não abre', async () => {
+  const t = setup({}, { win: { __HOLD_MS: 60 } });
+  await t.tick();
+  await t.click(/Iniciar reprodução/);
+  assert.ok(t.maint.classList.contains('hidden'));
+
+  fire(t.corner, 'pointerdown');
+  fire(t.corner, 'pointerup'); // soltou antes da hora
+  await new Promise((r) => setTimeout(r, 120));
+  assert.ok(t.maint.classList.contains('hidden'), 'toque curto não abre');
+
+  fire(t.corner, 'pointerdown');
+  assert.ok(t.corner.classList.contains('holding'), 'anel de andamento ligado');
+  await new Promise((r) => setTimeout(r, 120));
+  assert.ok(!t.maint.classList.contains('hidden'), 'segurar abre o painel');
+  assert.ok(!t.corner.classList.contains('holding'));
+  assert.match(t.maint.innerText, /Mídias baixadas/);
+
+  await t.click(/Iniciar reprodução/);
+  fire(t.corner, 'click', { detail: 0 }); // teclado (Enter/Espaço) continua abrindo direto
+  await t.tick();
+  assert.ok(!t.maint.classList.contains('hidden'));
+  assert.deepEqual(t.errors, []);
+});
+
+test('touch: confirmações são do próprio painel (botões grandes) e Cancelar não executa a ação', async () => {
+  const actions = [];
+  const t = setup({ action: async (_t, a) => (actions.push(a), { ok: true, message: 'feito' }) });
+  await t.tick();
+  await t.click(/Mais opções/);
+  await t.tap(/Sair do player/);
+  assert.match(t.maint.innerText, /Encerrar o player\?/);
+  await t.click(/^Cancelar$/);
+  assert.deepEqual(actions, []);
+  assert.ok(!/Encerrar o player\?/.test(t.maint.innerText), 'diálogo fechou');
+  await t.tap(/Sair do player/);
+  await t.click(/^Confirmar$/);
+  assert.deepEqual(actions, ['quit']);
+});
+
+test('touch: Exibição e Conexão não usam listas suspensas; tudo é botão grande', async () => {
+  const saved = [];
+  const t = setup({ setDisplay: async (_t, d) => (saved.push(d), { ok: true, message: 'salvo' }), listScreens: async () => ({ ok: true, screens: ['loja', 'vitrine'] }), getConfig: async () => ({ ok: true, baseUrl: 'https://x/b', screenId: 'loja', pollSeconds: 60, keyId: 'K', hasSecret: true, screens: ['loja', 'vitrine'] }) });
+  await t.tick();
+  await t.click(/Exibição/);
+  assert.equal(t.maint.all((n) => n.tagName === 'SELECT').length, 0);
+  await t.click(/^90°$/);
+  await t.click(/Preencher a tela|Preencher \(corta/);
+  await t.click(/^\+$/);
+  await t.click(/Salvar/);
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)), [{ fit: 'cover', rotate: 90, volume: 100 }]);
+  await t.click(/Voltar/);
+
+  await t.click(/Conexão com o admin/);
+  assert.equal(t.maint.all((n) => n.tagName === 'SELECT').length, 0);
+  assert.ok(button(/^vitrine$/, t), 'telas viram botões');
+  assert.deepEqual(t.errors, []);
+});
+
+function button(re, t) {
+  return t.maint.all((n) => n.tagName === 'BUTTON' && re.test(n.innerText))[0];
+}
+
+test('touch: "Procurar pair.txt" usa o código do arquivo, sem digitar nada', async () => {
+  const applied = [];
+  const t = setup({
+    findPair: async () => ({ ok: true, text: 'RM1-arquivo.00000000', file: 'D:\\pair.txt' }),
+    applyPair: async (_t, c) => (applied.push(c), { ok: true, baseUrl: 'https://x/b', keyId: 'K', pollSeconds: 60, screens: ['loja'], screensError: '' }),
+  });
+  await t.tick();
+  await t.click(/Conexão com o admin/);
+  await t.click(/Procurar pair\.txt/);
+  assert.deepEqual(applied, ['RM1-arquivo.00000000']);
+  assert.match(t.maint.innerText, /pair\.txt encontrado em D:/);
+
+  const t2 = setup({ findPair: async () => ({ ok: false, error: 'Não encontrei o pair.txt.' }) });
+  await t2.tick();
+  await t2.click(/Conexão com o admin/);
+  await t2.click(/Procurar pair\.txt/);
+  assert.match(t2.maint.innerText, /Não encontrei o pair\.txt/);
+  assert.deepEqual(t.errors.concat(t2.errors), []);
+});
+
+test('touch: parado por alguns minutos, o painel fecha sozinho e a reprodução volta', async () => {
+  const t = setup({}, { win: { __IDLE_MS: 250, __IDLE_POLL_MS: 20 } });
+  await t.tick();
+  await t.click(/Exibição/); // numa tela de ajustes, onde a contagem de 60 s da tela inicial não existe
+  assert.ok(!t.maint.classList.contains('hidden'));
+  assert.ok(!t.maint.classList.contains('hidden'), 'ainda aberto logo depois de tocar');
+  await new Promise((r) => setTimeout(r, 500));
+  assert.ok(t.maint.classList.contains('hidden'), 'fechou por inatividade');
+  assert.deepEqual(t.holds.slice(-1), [false], 'som volta');
 });

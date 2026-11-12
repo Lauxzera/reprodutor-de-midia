@@ -36,13 +36,13 @@ Digite as credenciais somente no painel. Elas ficam criptografadas naquele compu
    - ative o login automático do Windows (`Win+R` > `netplwiz`);
    - ajuste as *Horas ativas* do Windows Update para cobrir o horário da loja.
 
-Para mexer no Windows com o player em tela cheia: clique no botão ⚙ do **canto inferior direito** (ele fica quase transparente; fica nítido ao passar o mouse), escolha **Minimizar o player** ou **Configurações do Windows**. O player volta sozinho à tela cheia em 10 minutos.
+Para mexer no Windows com o player em tela cheia: **segure** o botão ⚙ do **canto inferior direito** por 1,5 segundo (ele fica quase transparente; um anel mostra o andamento), escolha **Minimizar o player** ou **Configurações do Windows**. O player volta sozinho à tela cheia em 10 minutos.
 
 O player se registra para abrir no login do Windows (`"autoStart": true` no `config.json`). Não é necessário o `install-autostart.ps1`, que é só para rodar pelo código-fonte.
 
 ### Atualizações
 
-Com a versão 0.1.4 ou mais nova, o Player avisa quando há versão nova (pontinho laranja no botão ⚙). Clique no botão e use **Atualizar para vX**; ele baixa, confere o hash, instala e reabre sozinho. Nas versões anteriores, use o comando de instalação do README uma vez.
+Com a versão 0.1.4 ou mais nova, o Player avisa quando há versão nova (pontinho laranja no botão ⚙). Segure o botão e use **Atualizar para vX**; ele baixa, confere o hash, instala e reabre sozinho. Nas versões anteriores, use o comando de instalação do README uma vez.
 
 ## 4. Antes de levar o PC a um evento
 

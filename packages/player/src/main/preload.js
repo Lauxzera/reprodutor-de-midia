@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('playerApi', {
     auth: (password) => invoke('maint:auth', password),
     info: (token) => invoke('maint:info', token),
     action: (token, action) => invoke('maint:action', token, action),
+    findPair: (token) => invoke('maint:find-pair', token),
     paste: (token) => invoke('maint:paste', token),
     setDisplay: (token, d) => invoke('maint:set-display', token, d),
     getConfig: (token) => invoke('maint:get-config', token),
