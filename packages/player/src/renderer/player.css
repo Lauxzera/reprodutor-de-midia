@@ -208,20 +208,29 @@ img { -webkit-user-drag: none; }
 .dialog button.primary { background: #4c8dff; border-color: #4c8dff; color: #fff; }
 .dialog button:focus-visible { outline: 3px solid #8db8ff; outline-offset: 2px; }
 
-/* teclado na tela */
-#vkb { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; padding: 10px 10px 14px; background: #14161a; border-top: 1px solid #2e333d; display: flex; flex-direction: column; gap: 8px; touch-action: manipulation; }
+/* teclado flutuante (ABNT2): arrastável, com tamanho ajustável */
+#vkb { position: fixed; z-index: 30; padding: 8px 8px 10px; background: rgba(20, 22, 26, 0.97); border: 1px solid #4c8dff; border-radius: 14px; box-shadow: 0 14px 44px rgba(0, 0, 0, 0.65); display: flex; flex-direction: column; gap: 6px; touch-action: none; -webkit-user-select: none; user-select: none; }
 #vkb.hidden { display: none; }
-#vkb .vk-row { display: flex; gap: 6px; justify-content: center; }
-#vkb .vk { flex: 1 1 0; max-width: 92px; min-height: clamp(40px, 7.5vh, 64px); padding: 0; border-radius: 8px; border: 1px solid #2e333d; background: #242830; color: #e6e8ec; font: 22px 'Segoe UI', system-ui, sans-serif; cursor: pointer; }
+#vkb .vk-bar { display: flex; gap: 6px; align-items: stretch; }
+#vkb .vk-handle { flex: 1 1 auto; display: flex; align-items: center; min-height: 44px; padding: 0 14px; background: #1c1f25; border: 1px dashed #3b4250; border-radius: 8px; color: #9097a3; font-size: 15px; cursor: grab; touch-action: none; white-space: nowrap; }
+#vkb .vk-handle:active { cursor: grabbing; border-color: #4c8dff; color: #e6e8ec; }
+#vkb .vk-row { display: flex; gap: 5px; }
+#vkb .vk-row.r1 { padding: 0 13.4%; }
+#vkb .vk-row.r4 { justify-content: center; }
+#vkb .vk { flex: 1 1 0; min-width: 0; min-height: clamp(40px, 6.2vh, 60px); padding: 0; border-radius: 8px; border: 1px solid #2e333d; background: #242830; color: #e6e8ec; font: 21px 'Segoe UI', system-ui, sans-serif; cursor: pointer; touch-action: manipulation; }
 #vkb .vk:active { background: #4c8dff; border-color: #4c8dff; }
-#vkb .vk.fn { background: #1c1f25; max-width: 120px; flex-grow: 1.4; }
-#vkb .vk.wide { max-width: none; flex-grow: 5; font-size: 16px; }
+#vkb .vk.fn { background: #1c1f25; font-size: 17px; }
+#vkb .vk.k-back { flex: 3.4; }
+#vkb .vk.k-caps, #vkb .vk.k-enter { flex: 2.2; }
+#vkb .vk.k-shift { flex: 2.2; }
+#vkb .vk.k-enter { background: #4c8dff; border-color: #4c8dff; color: #fff; font-weight: 600; }
+#vkb .vk.wide { flex: 0 1 56%; font-size: 16px; }
+#vkb .vk.dead { color: #f2b84b; }
+#vkb.dead-pending .vk.dead { background: rgba(242, 184, 75, 0.18); border-color: #f2b84b; }
 #vkb .vk[aria-pressed='true'] { background: #4c8dff; border-color: #4c8dff; color: #fff; }
 #vkb .vk.lock { box-shadow: inset 0 -4px 0 #f2b84b; }
-#vkb .vk-tools .vk { max-width: none; font-size: 17px; min-height: clamp(40px, 6.5vh, 56px); }
-#vkb .vk-tools .vk[data-key='ENTER'] { background: #4c8dff; border-color: #4c8dff; color: #fff; font-weight: 600; flex-grow: 2; }
-body.vkb-open #maint { padding-bottom: var(--vkb-h, 0px); }
-body.vkb-open #maint .footbar { position: static; background: none; }
+#vkb .vk.tool { flex: 0 0 auto; padding: 0 16px; min-height: 44px; font-size: 16px; }
+#vkb .vk.tool.done { background: #4c8dff; border-color: #4c8dff; color: #fff; font-weight: 600; }
 
 /* botão do painel no canto: toque longo */
 #corner { position: fixed; z-index: 15; border: 0; cursor: pointer; width: 96px; height: 96px; right: 0; bottom: 0; background: none; border-radius: 0; opacity: 1; display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 14px 14px 0; touch-action: none; }
@@ -252,7 +261,7 @@ body.maint-open #idle-open { display: none; }
   #maint .tile { min-height: 84px; }
   #maint .tile b { font-size: 19px; }
   #maint .winbtn { min-height: 56px; font-size: 18px; }
-  #vkb .vk { min-height: clamp(44px, 7.5vh, 68px); font-size: 24px; }
+  #vkb .vk { min-height: clamp(46px, 6.6vh, 64px); font-size: 22px; }
 }
 @media (prefers-reduced-motion: reduce) {
   #corner.holding .ring .fill { animation-duration: 1.5s; }
