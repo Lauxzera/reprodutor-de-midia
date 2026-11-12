@@ -25,6 +25,41 @@ const REASONS = {
 };
 
 /**
+ * Lê só o cabecalho do video e diz se ele passa do que uma TV/totem simples decodifica sem engasgar
+ * (acima de Full HD ou acima de 30 fps). Videos dentro do limite nao sao tocados (sem perda de qualidade).
+ * @returns {Promise<null | {width:number,height:number,fps:number|null,heavy:boolean,why:string}>}
+ */
+async function analyzeVideo(file) {
+  let input;
+  try {
+    input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+    const track = await input.getPrimaryVideoTrack();
+    if (!track) return null;
+    const width = track.displayWidth;
+    const height = track.displayHeight;
+    let fps = null;
+    try {
+      fps = (await track.computePacketStats(120)).averagePacketRate;
+    } catch {
+      /* sem a estatistica, julga so pela resolucao */
+    }
+    return { width, height, fps, ...judgeVideo(width, height, fps) };
+  } catch {
+    return null;
+  } finally {
+    input?.dispose?.();
+  }
+}
+
+/** Regra pura (testavel): precisa otimizar quando passa de Full HD ou de 30 fps. */
+function judgeVideo(width, height, fps) {
+  const big = Math.max(width, height) > MAX_LONG || Math.min(width, height) > MAX_SHORT;
+  const fast = typeof fps === 'number' && fps > MAX_FPS + 1;
+  const why = [big ? `${width}x${height}` : '', fast ? `${Math.round(fps)} fps` : ''].filter(Boolean).join(' e ');
+  return { heavy: big || fast, why };
+}
+
+/**
  * @param {File} file
  * @param {{ onProgress?: (fraction:number)=>void }} [opts]
  * @returns {Promise<File>} MP4 H.264/AAC com o mesmo nome e extensão .mp4
@@ -73,4 +108,4 @@ async function convertVideo(file, { onProgress } = {}) {
   }
 }
 
-module.exports = { convertVideo, targetSize };
+module.exports = { convertVideo, analyzeVideo, judgeVideo, targetSize };

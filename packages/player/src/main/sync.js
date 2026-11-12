@@ -16,6 +16,15 @@ const IDLE_TIMEOUT_MS = 30000;
 const DISK_MARGIN_BYTES = 50 * 1024 * 1024;
 const MAX_BACKOFF_MS = 5 * 60 * 1000;
 
+/** True quando os itens que existem nos dois manifestos mudaram de posicao relativa (nao conta midias novas ou removidas). */
+function adminReordered(oldItems, newItems) {
+  const inNew = new Set(newItems.map((x) => x.id));
+  const inOld = new Set(oldItems.map((x) => x.id));
+  const a = oldItems.map((x) => x.id).filter((id) => inNew.has(id));
+  const b = newItems.map((x) => x.id).filter((id) => inOld.has(id));
+  return a.some((id, i) => id !== b[i]);
+}
+
 class SyncEngine extends EventEmitter {
   /**
    * @param {object} opts
@@ -540,6 +549,11 @@ class SyncEngine extends EventEmitter {
       } catch (e) {
         this.log(`Não foi possível gravar a cópia de segurança do manifesto: ${e.message}`);
       }
+      // Reordenou no admin? A ordem do admin vale de novo (a ordem local era um ajuste temporario).
+      if (this.state.order && this.state.order.length && this.manifest && adminReordered(this.manifest.items, target.items)) {
+        this.log('Ordem alterada no admin: a ordem local foi descartada');
+        this.state.order = [];
+      }
       this.manifest = target;
     }
     this.state.etag = etag || this.state.etag;
@@ -691,4 +705,4 @@ class SyncEngine extends EventEmitter {
   }
 }
 
-module.exports = { SyncEngine };
+module.exports = { SyncEngine, adminReordered };

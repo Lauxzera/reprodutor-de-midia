@@ -258,3 +258,35 @@ test('limpeza de órfãs: não apaga o que uma tela publicada ainda usa e avisa 
   assert.equal(r2.held.length, 0);
   assert.equal([...storage.objects.keys()].filter((k) => k.startsWith('media/')).length, 0);
 });
+
+test('vídeo H.264 pesado (4K ou 60 fps) é otimizado; dentro do limite fica intacto; falha usa o original', async () => {
+  const settings = { endpoint: 'https://s3.us-east-005.backblazeb2.com', region: '', bucket: 'b', privateBucket: true, publicBaseUrl: '' };
+  const mk = (name, size) => new File([Buffer.concat([Buffer.from('....ftypisom....moov'), Buffer.from('avc1'), crypto.randomBytes(size)])], name, { type: 'video/mp4' });
+  const smallOut = () => mk('grande.mp4', 200);
+
+  // pesado: troca pelo arquivo menor
+  const heavy = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => smallOut(), analyzeVideo: async () => ({ heavy: true, why: '3840x2160' }) });
+  const msgs = [];
+  heavy.library.onProgress((m) => msgs.push(m));
+  const big = mk('grande.mp4', 5000);
+  const r1 = await heavy.library.addPaths([big]);
+  assert.equal(r1.added.length, 1);
+  assert.ok(msgs.some((m) => /vídeo pesado \(3840x2160\)/.test(m)));
+  assert.ok((await heavy.library.list())[0].size < big.size, 'foi enviado o arquivo otimizado');
+
+  // dentro do limite: o conversor nem é chamado
+  let called = 0;
+  const light = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => { called++; return smallOut(); }, analyzeVideo: async () => ({ heavy: false, why: '' }) });
+  const orig = mk('ok.mp4', 3000);
+  await light.library.addPaths([orig]);
+  assert.equal(called, 0);
+  assert.equal((await light.library.list())[0].size, orig.size);
+
+  // conversor falha: segue com o original em vez de recusar o arquivo
+  const failing = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => { throw new Error('sem encoder'); }, analyzeVideo: async () => ({ heavy: true, why: '60 fps' }) });
+  const m2 = [];
+  failing.library.onProgress((m) => m2.push(m));
+  const r3 = await failing.library.addPaths([mk('f.mp4', 2000)]);
+  assert.equal(r3.added.length, 1);
+  assert.ok(m2.some((m) => /não foi possível otimizar/.test(m)));
+});

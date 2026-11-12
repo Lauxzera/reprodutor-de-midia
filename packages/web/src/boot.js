@@ -7,7 +7,7 @@ const { createS3, regionFromEndpoint } = require('./s3');
 const { createMemoryS3 } = require('./memory-s3');
 const { createWebApi } = require('./web-api');
 const vault = require('./vault');
-const { convertVideo } = require('./convert');
+const { convertVideo, analyzeVideo } = require('./convert');
 
 const LS_VAULT = 'rm.vault';
 const LS_SETTINGS = 'rm.settings';
@@ -70,6 +70,7 @@ function start({ storage, settings, saveSettings, logout, getReadKey, getStatusK
     getReadKey,
     getStatusKey,
     convertVideo,
+    analyzeVideo,
     pickFiles: () =>
       new Promise((resolve) => {
         fileInput.value = '';

@@ -45,7 +45,7 @@ const extOf = (name) => {
  * @param {Function} [o.logout]
  * @param {Function} [o.pickFiles] () => Promise<File[]>   (seletor de arquivos do navegador)
  */
-function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getReadKey = () => null, getStatusKey = () => null, convertVideo = null, fetchLatest = fetchLatestVersion }) {
+function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getReadKey = () => null, getStatusKey = () => null, convertVideo = null, analyzeVideo = null, fetchLatest = fetchLatestVersion }) {
   const viewSettings = () => {
     const rk = getReadKey();
     const sk = getStatusKey();
@@ -104,6 +104,26 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getR
       try {
         say(`${tag}: calculando assinatura…`);
         let probe = await hashAndProbe(file, (f) => say(`${tag}: lendo ${Math.round(f * 100)}%`));
+
+        // Video pesado demais para a TV (acima de Full HD ou de 30 fps), mesmo em H.264: reduz para Full HD/30 fps.
+        // Videos dentro do limite seguem intactos (sem recompressao, sem perda). Se a conversao falhar, usa o original.
+        if (type === 'video' && !(probe.hevc && !probe.h264) && convertVideo && analyzeVideo) {
+          const info = await analyzeVideo(file);
+          if (info && info.heavy) {
+            say(`${tag}: vídeo pesado (${info.why}); otimizando para Full HD/30 fps…`);
+            try {
+              const smaller = await convertVideo(file, { onProgress: (f) => say(`${tag}: otimizando ${Math.round(f * 100)}%`) });
+              if (smaller.size < file.size) {
+                file = smaller;
+                name = smaller.name;
+                ext = extOf(name);
+                probe = await hashAndProbe(file, (f) => say(`${tag}: lendo ${Math.round(f * 100)}%`));
+              }
+            } catch (e) {
+              say(`${tag}: não foi possível otimizar (${e.message}); enviando o original`);
+            }
+          }
+        }
 
         // HEVC (H.265, padrão do iPhone) não toca no Player: converte para H.264 em MP4 aqui mesmo, no navegador.
         if (type === 'video' && probe.hevc && !probe.h264) {

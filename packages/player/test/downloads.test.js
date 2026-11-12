@@ -246,3 +246,13 @@ test('duração local não vale para vídeo', async () => {
   t.engine.manifest.items[0].type = 'video';
   assert.equal(t.engine.setItemLocal('a', { durationSec: 9 }).ok, false);
 });
+
+test('reordenar no admin descarta a ordem local; mídia nova ou removida não', () => {
+  const { adminReordered } = require('../src/main/sync');
+  const ids = (...x) => x.map((id) => ({ id }));
+  assert.equal(adminReordered(ids('a', 'b', 'c'), ids('a', 'b', 'c')), false);
+  assert.equal(adminReordered(ids('a', 'b'), ids('a', 'b', 'c')), false, 'mídia nova no fim');
+  assert.equal(adminReordered(ids('a', 'b', 'c'), ids('a', 'c')), false, 'mídia removida');
+  assert.equal(adminReordered(ids('a', 'b', 'c'), ids('c', 'a', 'b')), true, 'reordenou');
+  assert.equal(adminReordered(ids('a', 'b'), ids('x', 'b', 'a')), true, 'reordenou junto com mídia nova');
+});
