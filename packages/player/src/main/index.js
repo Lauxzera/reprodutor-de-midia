@@ -24,6 +24,11 @@ const dataDir = process.env.PLAYER_DATA_DIR || (dirArg ? dirArg.slice('--data-di
 app.commandLine.appendSwitch('disable-pinch');
 app.commandLine.appendSwitch('overscroll-history-navigation', '0');
 
+// Video: usa a decodificacao por hardware (GPU) mesmo em placas antigas que o Chromium bloqueia por precaucao,
+// e nao gasta CPU rastreando oclusao de janela (o player sempre fica em tela cheia).
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -662,6 +667,18 @@ function main() {
     if (app.isPackaged && config.autoStart) app.setLoginItemSettings({ openAtLogin: true });
     createWindow();
     watchdog.start();
+    // Diagnostico de desempenho: qual GPU e se a decodificacao de video esta em hardware.
+    setTimeout(() => {
+      try {
+        const f = app.getGPUFeatureStatus();
+        app.getGPUInfo('basic')
+          .then((i) => {
+            const gpus = ((i.gpuDevice || []).map((d) => `${d.vendorId}:${d.deviceId}${d.active ? '*' : ''}`)).join(', ');
+            log(`GPU: ${gpus || '?'} | video_decode=${f.video_decode} gpu_compositing=${f.gpu_compositing}`);
+          })
+          .catch(() => log(`GPU: video_decode=${f.video_decode} gpu_compositing=${f.gpu_compositing}`));
+      } catch {}
+    }, 5000);
     if (process.env.PLAYER_METRICS) {
       // Teste de longa duração: registra memória (MB) de cada processo a cada 15 s.
       setInterval(() => {

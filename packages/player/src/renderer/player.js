@@ -136,6 +136,46 @@ async function loadImage(item) {
   return img;
 }
 
+// Pré-carga: enquanto uma mídia toca, a próxima já é aberta e decodificada em segundo plano.
+// Assim a troca não espera disco/decodificador e não perde quadros.
+let preloaded = null; // { id, promise }
+
+function dropPreload() {
+  const old = preloaded;
+  preloaded = null;
+  if (!old) return;
+  old.promise.then(
+    (el) => {
+      if (el.tagName === 'VIDEO') {
+        el.pause();
+        el.removeAttribute('src');
+        el.load();
+      }
+    },
+    () => {},
+  );
+}
+
+function prefetchNext(afterId) {
+  api
+    .next(afterId)
+    .then((next) => {
+      if (!next || next.id === currentId || (preloaded && preloaded.id === next.id)) return;
+      dropPreload();
+      const promise = next.type === 'image' ? loadImage(next) : loadVideo(next);
+      promise.catch(() => {}); // falha na pré-carga: a troca tenta de novo na hora
+      preloaded = { id: next.id, promise };
+    })
+    .catch(() => {});
+}
+
+function takePreload(id) {
+  if (!preloaded || preloaded.id !== id) return Promise.resolve(null);
+  const p = preloaded.promise;
+  preloaded = null;
+  return p.catch(() => null);
+}
+
 function loadVideo(item) {
   const v = document.createElement('video');
   v.muted = wantMuted();
@@ -171,8 +211,9 @@ async function play(item) {
   if (item.type === 'image') {
     // Prazo para o watchdog: tempo na tela + folga para carregar.
     api.playing({ id: item.id, expectedMs: (item.durationSec || 10) * 1000 + 45000 });
-    if (!same || currentEl.tagName !== 'IMG') swapTo(await loadImage(item));
+    if (!same || currentEl.tagName !== 'IMG') swapTo((await takePreload(item.id)) || (await loadImage(item)));
     currentId = item.id;
+    prefetchNext(item.id);
     await sleep((item.durationSec || 10) * 1000);
     return;
   }
@@ -183,12 +224,19 @@ async function play(item) {
     video = currentEl;
     video.currentTime = 0;
   } else {
-    video = await loadVideo(item);
+    video = await takePreload(item.id);
+    if (video) {
+      video.muted = wantMuted();
+      video.volume = volumeOf();
+    } else {
+      video = await loadVideo(item);
+    }
     swapTo(video);
   }
   currentId = item.id;
   api.playing({ id: item.id, expectedMs: (Number.isFinite(video.duration) ? video.duration : 120) * 1000 + 30000 });
   await video.play();
+  prefetchNext(item.id);
   await waitEnded(video);
 }
 

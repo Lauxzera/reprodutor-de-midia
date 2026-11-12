@@ -7,3 +7,7 @@ release/
 config-player-loja.json
 *.local.json
 security.json
+
+credenciais-privadas.md
+.env
+.env.*
