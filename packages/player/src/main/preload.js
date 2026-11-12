@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('playerApi', {
     auth: (password) => invoke('maint:auth', password),
     info: (token) => invoke('maint:info', token),
     action: (token, action) => invoke('maint:action', token, action),
+    playlistAction: (token, id, action, value) => invoke('maint:playlist-action', token, id, action, value),
     downloads: (token) => invoke('maint:downloads', token),
     downloadAction: (token, file, action) => invoke('maint:download-action', token, file, action),
     findPair: (token) => invoke('maint:find-pair', token),

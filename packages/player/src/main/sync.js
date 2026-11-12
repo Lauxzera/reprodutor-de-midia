@@ -52,7 +52,7 @@ class SyncEngine extends EventEmitter {
     this._warnedDay = null;
 
     this.manifest = null;
-    this.state = { etag: null, lastSyncAt: null, requestDay: today(), requestsToday: 0, priority: [], paused: [] };
+    this.state = { etag: null, lastSyncAt: null, requestDay: today(), requestsToday: 0, priority: [], paused: [], order: [], local: {} };
     this.status = { state: 'idle', message: '', lastCheckAt: null, lastSyncAt: null };
 
     this._timer = null;
@@ -142,10 +142,96 @@ class SyncEngine extends EventEmitter {
     }
   }
 
-  /** Itens do manifesto ativo cujo arquivo realmente está no disco. */
-  playableItems() {
+  /**
+   * Itens do manifesto ativo com os ajustes locais deste player aplicados (nome, duração, ordem, oculta).
+   * Os ajustes ficam no state.json e valem por id de item; o manifesto do admin não é alterado.
+   */
+  localItems() {
     if (!this.manifest) return [];
-    return this.manifest.items.filter((it) => this._hasFile(it));
+    const order = this.state.order || [];
+    const local = this.state.local || {};
+    const rank = (id, i) => {
+      const k = order.indexOf(id);
+      return k >= 0 ? k : 1e6 + i;
+    };
+    return this.manifest.items
+      .map((it, i) => ({ it, i }))
+      .sort((a, b) => rank(a.it.id, a.i) - rank(b.it.id, b.i))
+      .map(({ it }) => {
+        const l = local[it.id] || {};
+        const out = { ...it, origName: it.name || it.id, origDuration: it.durationSec || 0, localHidden: Boolean(l.hidden), localName: Boolean(l.name), localDuration: Boolean(l.durationSec) };
+        if (l.name) out.name = l.name;
+        if (l.durationSec) out.durationSec = l.durationSec;
+        return out;
+      });
+  }
+
+  /** Itens que tocam: na ordem local, não ocultos e com o arquivo no disco. */
+  playableItems() {
+    return this.localItems().filter((it) => !it.localHidden && this._hasFile(it));
+  }
+
+  /** Muda nome, duração (imagens) ou visibilidade de uma mídia só neste player. Valor vazio/0 volta ao do admin. */
+  setItemLocal(id, patch = {}) {
+    const it = this.manifest && this.manifest.items.find((x) => x.id === id);
+    if (!it) return { ok: false, error: 'Mídia não encontrada na programação' };
+    const local = { ...(this.state.local || {}) };
+    const cur = { ...(local[id] || {}) };
+    if ('name' in patch) {
+      const n = String(patch.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      if (n && n !== (it.name || it.id)) cur.name = n;
+      else delete cur.name;
+    }
+    if ('durationSec' in patch) {
+      const d = Math.round(Number(patch.durationSec));
+      if (it.type !== 'image') return { ok: false, error: 'A duração só vale para imagens (vídeo toca até o fim)' };
+      if (d > 0 && d !== (it.durationSec || 0)) {
+        if (d > 3600) return { ok: false, error: 'Duração máxima: 3600 s' };
+        cur.durationSec = d;
+      } else delete cur.durationSec;
+    }
+    if ('hidden' in patch) {
+      if (patch.hidden) cur.hidden = true;
+      else delete cur.hidden;
+    }
+    if (Object.keys(cur).length) local[id] = cur;
+    else delete local[id];
+    this.state.local = local;
+    this._saveState();
+    this.emit('local');
+    this._emitDownloads(true);
+    return { ok: true };
+  }
+
+  /** Muda a ordem de reprodução neste player: 'up', 'down', 'top', 'bottom'. */
+  moveItem(id, action) {
+    const ids = this.localItems().map((x) => x.id);
+    const i = ids.indexOf(id);
+    if (i < 0) return { ok: false, error: 'Mídia não encontrada na programação' };
+    const to = { up: i - 1, down: i + 1, top: 0, bottom: ids.length - 1 }[action];
+    if (to === undefined) return { ok: false, error: 'Ação desconhecida' };
+    ids.splice(i, 1);
+    ids.splice(Math.max(0, Math.min(ids.length, to)), 0, id);
+    this.state.order = ids;
+    this._saveState();
+    this.emit('local');
+    return { ok: true };
+  }
+
+  /** Volta ao que o admin definiu: uma mídia (id) ou tudo (sem id, inclui a ordem). */
+  resetLocal(id) {
+    if (id) {
+      const local = { ...(this.state.local || {}) };
+      delete local[id];
+      this.state.local = local;
+    } else {
+      this.state.local = {};
+      this.state.order = [];
+    }
+    this._saveState();
+    this.emit('local');
+    this._emitDownloads(true);
+    return { ok: true };
   }
 
   start() {
@@ -194,7 +280,10 @@ class SyncEngine extends EventEmitter {
   }
 
   _saveState() {
-    return fsp.writeFile(this.statePath, JSON.stringify(this.state, null, 2)).catch(() => {});
+    // Gravações em série: várias mudanças seguidas (ordem, nome...) não se misturam no mesmo arquivo.
+    const json = JSON.stringify(this.state, null, 2);
+    this._saving = (this._saving || Promise.resolve()).then(() => fsp.writeFile(this.statePath, json)).catch(() => {});
+    return this._saving;
   }
 
   /** Posição na fila definida pelo usuário (menor = antes); o que não foi ordenado vai depois, na ordem do manifesto. */
@@ -238,7 +327,7 @@ class SyncEngine extends EventEmitter {
       let state = present ? 'done' : paused ? 'paused' : cur && cur.state === 'error' ? 'error' : cur && cur.state === 'downloading' ? 'downloading' : 'queued';
       const total = (cur && cur.total) || it.size || 0;
       const received = present ? total : cur && cur.state === 'downloading' ? cur.received : this._partSize(it);
-      return { id: it.id, file: it.file, name: it.name || it.file, type: it.type, size: it.size || 0, state, received, total, paused, error: cur && cur.state === 'error' ? cur.error : '', order: order + 1 };
+      return { id: it.id, file: it.file, name: ((this.state.local || {})[it.id] || {}).name || it.name || it.file, type: it.type, size: it.size || 0, state, received, total, paused, error: cur && cur.state === 'error' ? cur.error : '', order: order + 1 };
     });
     return { items: rows, revision: this.pendingRevision ?? (this.manifest ? this.manifest.revision : null), incoming: Boolean(this.pending), syncing: Boolean(this._inflight) };
   }

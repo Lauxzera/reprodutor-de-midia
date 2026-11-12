@@ -184,3 +184,65 @@ test('a fila e as pausas sobrevivem a um reinício (state.json)', async () => {
   assert.deepEqual(again.state.paused, [t.by.b.file]);
   assert.equal(again.state.priority[0], t.by.b.file);
 });
+
+// ---- Playlist local: ordem, nomes, ocultar e duração (só neste player) ----
+
+test('playlist local: ordem, renomear, ocultar e duração mudam o que toca, sem mexer no manifesto', async () => {
+  const t = setup(['a', 'b', 'c']);
+  await t.engine.syncOnce();
+  const ids = () => t.engine.playableItems().map((x) => x.id);
+  assert.deepEqual(ids(), ['a', 'b', 'c']);
+
+  assert.equal(t.engine.moveItem('c', 'top').ok, true);
+  assert.deepEqual(ids(), ['c', 'a', 'b']);
+  t.engine.moveItem('c', 'down');
+  assert.deepEqual(ids(), ['a', 'c', 'b']);
+  t.engine.moveItem('a', 'bottom');
+  assert.deepEqual(ids(), ['c', 'b', 'a']);
+  assert.equal(t.engine.moveItem('zzz', 'up').ok, false);
+  assert.equal(t.engine.moveItem('a', 'sideways').ok, false);
+
+  assert.equal(t.engine.setItemLocal('b', { name: '  Promoção   de verão ' }).ok, true);
+  assert.equal(t.engine.playableItems().find((x) => x.id === 'b').name, 'Promoção de verão');
+  assert.equal(t.engine.manifest.items.find((x) => x.id === 'b').name, 'b.jpg', 'manifesto intacto');
+  assert.equal(t.statusOf('b').name, 'Promoção de verão');
+
+  assert.equal(t.engine.setItemLocal('a', { durationSec: 17 }).ok, true);
+  assert.equal(t.engine.playableItems().find((x) => x.id === 'a').durationSec, 17);
+  assert.equal(t.engine.setItemLocal('a', { durationSec: 5000 }).ok, false);
+
+  t.engine.setItemLocal('c', { hidden: true });
+  assert.deepEqual(ids(), ['b', 'a']);
+  assert.equal(t.engine.localItems().find((x) => x.id === 'c').localHidden, true);
+  t.engine.setItemLocal('c', { hidden: false });
+  assert.deepEqual(ids(), ['c', 'b', 'a']);
+
+  // nome igual ao do admin ou vazio = sem ajuste
+  t.engine.setItemLocal('b', { name: 'b.jpg' });
+  assert.equal(t.engine.localItems().find((x) => x.id === 'b').localName, false);
+});
+
+test('playlist local: sobrevive a reinício, mídia nova entra no fim e "restaurar" volta ao admin', async () => {
+  const t = setup(['a', 'b']);
+  await t.engine.syncOnce();
+  t.engine.moveItem('b', 'top');
+  t.engine.setItemLocal('a', { name: 'Fachada', hidden: true });
+  await sleep(50);
+  const again = new SyncEngine({ dataDir: t.dataDir, baseUrl: 'http://bucket.test', screenId: 'loja', fetch: async () => new Response('', { status: 500 }) });
+  again.init();
+  assert.deepEqual(again.localItems().map((x) => x.id), ['b', 'a']);
+  assert.equal(again.localItems().find((x) => x.id === 'a').name, 'Fachada');
+  assert.deepEqual(again.playableItems().map((x) => x.id), ['b']);
+
+  again.resetLocal('a');
+  assert.equal(again.localItems().find((x) => x.id === 'a').name, 'a.jpg');
+  again.resetLocal(null);
+  assert.deepEqual(again.playableItems().map((x) => x.id), ['a', 'b']);
+});
+
+test('duração local não vale para vídeo', async () => {
+  const t = setup(['a']);
+  await t.engine.syncOnce();
+  t.engine.manifest.items[0].type = 'video';
+  assert.equal(t.engine.setItemLocal('a', { durationSec: 9 }).ok, false);
+});

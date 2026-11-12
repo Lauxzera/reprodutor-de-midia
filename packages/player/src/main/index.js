@@ -124,9 +124,9 @@ function main() {
     windowed,
     display: config.display,
     media: engine.manifest
-      ? engine.manifest.items.map((it) => {
+      ? engine.localItems().map((it) => {
           const present = engine._hasFile(it);
-          return { id: it.id, type: it.type, name: it.name || it.id, size: it.size || 0, durationSec: it.durationSec || 0, present, src: present && it.type === 'image' ? pathToFileURL(engine.mediaPath(it)).href : '' };
+          return { id: it.id, type: it.type, name: it.name || it.id, origName: it.origName, origDuration: it.origDuration, hidden: it.localHidden, localName: it.localName, localDuration: it.localDuration, size: it.size || 0, durationSec: it.durationSec || 0, present, src: present && it.type === 'image' ? pathToFileURL(engine.mediaPath(it)).href : '' };
         })
       : [],
     dataDir,
@@ -161,12 +161,13 @@ function main() {
   ipcMain.on('player:log', (_e, message) => log(`Player: ${message}`));
   ipcMain.on('player:playing', (_e, info) => {
     if (info && typeof info === 'object') {
-      const it = engine.manifest && engine.manifest.items.find((x) => x.id === info.id);
+      const it = engine.localItems().find((x) => x.id === info.id);
       playingName = it ? it.name || it.id : '';
     }
     if (info && typeof info === 'object') watchdog.itemStarted({ id: typeof info.id === 'string' ? info.id : null, expectedMs: Number(info.expectedMs) });
   });
 
+  engine.on('local', () => notify());
   engine.on('downloads', (d) => {
     if (win && !win.isDestroyed()) win.webContents.send('player:downloads', d);
   });
@@ -281,6 +282,34 @@ function main() {
         return engine.removeLocal(file, { redownload: true });
       case 'remove':
         return engine.removeLocal(file, { redownload: false });
+      default:
+        return { ok: false, error: 'Ação desconhecida' };
+    }
+  });
+
+  // Playlist local: renomear, ordem de reprodução, ocultar e duração (só neste player; o admin não muda).
+  ipcMain.handle('maint:playlist-action', (_e, token, id, action, value) => {
+    if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
+    armWindowTimer();
+    if (action === 'reset-all') return engine.resetLocal(null);
+    if (typeof id !== 'string' || id.length > 200) return { ok: false, error: 'Mídia inválida' };
+    log(`Playlist: "${action}" em ${id.slice(0, 24)}`);
+    switch (action) {
+      case 'up':
+      case 'down':
+      case 'top':
+      case 'bottom':
+        return engine.moveItem(id, action);
+      case 'rename':
+        return engine.setItemLocal(id, { name: value });
+      case 'duration':
+        return engine.setItemLocal(id, { durationSec: value });
+      case 'hide':
+        return engine.setItemLocal(id, { hidden: true });
+      case 'show':
+        return engine.setItemLocal(id, { hidden: false });
+      case 'reset':
+        return engine.resetLocal(id);
       default:
         return { ok: false, error: 'Ação desconhecida' };
     }

@@ -11,6 +11,7 @@
     // Sem o teclado do Windows: o teclado na tela do Player (vkb.js) cuida da digitação.
     if (tag === 'input' || tag === 'textarea') node.setAttribute('inputmode', 'none');
     for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null) continue; // atributo nulo = não existe (ex.: disabled)
       if (k === 'class') node.className = v;
       else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
       else node.setAttribute(k, v);
@@ -206,6 +207,7 @@
         el(
           'div',
           { class: 'tiles' },
+          tile('Playlist e nomes', 'Ordem de reprodução, renomear, ocultar e tempo', needAuth(showPlaylist)),
           tile('Mídias e downloads', dlHint, needAuth(showMedia)),
           tile('Sincronizar agora', 'Busca mídias e playlist novas', needAuth(run('sync'), true)),
           tile('Conexão com o admin', 'Parear com o código e escolher a tela', needAuth(showConfig)),
@@ -321,12 +323,102 @@
       el('h1', {}, 'Mídias e downloads'),
       el('p', {}, 'Acompanhe o download de cada mídia e escolha a ordem: "Baixar já" interrompe o atual e começa por essa (o atual retoma depois, de onde parou).'),
       summary,
-      el('div', { class: 'row' }, el('button', { onclick: () => act('', 'pause-all') }, 'Pausar tudo'), el('button', { onclick: () => act('', 'resume-all') }, 'Retomar tudo')),
+      el('div', { class: 'row' }, el('button', { onclick: () => act('', 'pause-all') }, 'Pausar tudo'), el('button', { onclick: () => act('', 'resume-all') }, 'Retomar tudo'), el('button', { onclick: showPlaylist }, 'Playlist e nomes')),
       msg,
       list,
       el('div', { class: 'row footbar' }, el('button', { class: 'primary', onclick: () => showHome('') }, 'Voltar')),
     );
     void anyWaiting;
+  }
+
+  // Playlist e nomes: ordem de reprodução, renomear, ocultar e duração das imagens. Vale só neste player.
+  async function showPlaylist() {
+    view = 'playlist';
+    stopCountdown();
+    let renaming = null;
+    let focusEl = null;
+    let items = [];
+    const msg = el('div', { class: 'msg' });
+    const summary = el('div', { class: 'dl-summary' });
+    const list = el('div', { class: 'dl-list' });
+
+    const act = async (id, action, value) => {
+      const r = await api.maint.playlistAction(token, id, action, value);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.', showPlaylist);
+      msg.textContent = r.ok ? '' : r.error;
+      renaming = null;
+      await load();
+    };
+
+    const row = (m, i) => {
+      const adjusted = m.localName || m.localDuration;
+      const head = el('div', { class: 'dl-head' }, el('span', { class: 'dl-rank' }, `#${i + 1}`));
+      let nameInput = null;
+      if (renaming === m.id) {
+        nameInput = el('input', { type: 'text', value: m.name, maxlength: '80', 'aria-label': 'Novo nome' });
+        nameInput.value = m.name;
+        focusEl = nameInput;
+        head.append(nameInput);
+      } else head.append(el('b', {}, m.name));
+      if (m.hidden) head.append(el('span', { class: 'dl-state paused' }, 'Oculta'));
+      else if (!m.present) head.append(el('span', { class: 'dl-state queued' }, 'Não baixada'));
+      else head.append(el('span', { class: 'dl-state done' }, 'Na playlist'));
+      if (adjusted) head.append(el('span', { class: 'dl-state downloading' }, 'Ajustada'));
+
+      const meta = `${m.type === 'video' ? 'vídeo' : 'imagem'} · ${fmtSize(m.size)}${m.type === 'image' ? ` · ${m.durationSec || 10} s na tela` : ''}${m.localName ? ` · nome no admin: ${m.origName}` : ''}`;
+      const dur = (d) => act(m.id, 'duration', Math.max(1, (m.durationSec || 10) + d));
+      const buttons = nameInput
+        ? [
+            el('button', { class: 'primary', onclick: () => act(m.id, 'rename', nameInput.value) }, 'Salvar nome'),
+            el('button', { onclick: () => { renaming = null; draw(); } }, 'Cancelar'),
+          ]
+        : [
+            el('button', { 'aria-label': 'Subir', disabled: i === 0 ? 'true' : null, onclick: () => act(m.id, 'up') }, '▲'),
+            el('button', { 'aria-label': 'Descer', disabled: i === items.length - 1 ? 'true' : null, onclick: () => act(m.id, 'down') }, '▼'),
+            el('button', { 'aria-label': 'Para o início', disabled: i === 0 ? 'true' : null, onclick: () => act(m.id, 'top') }, '⤒'),
+            el('button', { 'aria-label': 'Para o fim', disabled: i === items.length - 1 ? 'true' : null, onclick: () => act(m.id, 'bottom') }, '⤓'),
+            el('button', { onclick: () => { renaming = m.id; draw(); } }, 'Renomear'),
+            el('button', { onclick: () => act(m.id, m.hidden ? 'show' : 'hide') }, m.hidden ? 'Mostrar' : 'Ocultar'),
+            adjusted ? el('button', { onclick: () => act(m.id, 'reset') }, 'Voltar ao do admin') : null,
+          ];
+      const thumb = m.src ? el('img', { src: m.src, alt: '' }) : m.type === 'video' ? 'VÍDEO' : '—';
+      return el(
+        'div',
+        { class: `dl-row pl-row ${m.hidden ? 'paused' : ''}`.trim() },
+        el('div', { class: 'pl-top' }, el('div', { class: 'thumb pl-thumb' }, thumb), el('div', { class: 'pl-info' }, head, el('div', { class: 'dl-meta' }, meta))),
+        m.type === 'image' && !nameInput
+          ? el('div', { class: 'row dl-actions pl-dur' }, el('span', {}, 'Tempo na tela'), el('button', { 'aria-label': 'Menos 5 segundos', onclick: () => dur(-5) }, '−5'), el('button', { 'aria-label': 'Menos 1 segundo', onclick: () => dur(-1) }, '−1'), el('b', { class: 'pl-secs' }, `${m.durationSec || 10} s`), el('button', { 'aria-label': 'Mais 1 segundo', onclick: () => dur(1) }, '+1'), el('button', { 'aria-label': 'Mais 5 segundos', onclick: () => dur(5) }, '+5'))
+          : null,
+        el('div', { class: 'row dl-actions' }, ...buttons.filter(Boolean)),
+      );
+    };
+
+    function draw() {
+      const top = root.scrollTop;
+      const hidden = items.filter((m) => m.hidden).length;
+      summary.textContent = items.length ? `${items.length - hidden} na playlist${hidden ? ` · ${hidden} oculta(s)` : ''} · a ordem abaixo é a da reprodução neste player` : 'Nenhuma mídia na programação ainda.';
+      focusEl = null;
+      list.replaceChildren(...items.map(row));
+      if (focusEl) focusEl.focus();
+      else root.scrollTop = top;
+    }
+
+    async function load() {
+      const s = await api.getState();
+      items = s.media || [];
+      draw();
+    }
+
+    box(
+      el('h1', {}, 'Playlist e nomes'),
+      el('p', {}, 'Mude a ordem de reprodução, renomeie, oculte ou ajuste o tempo das imagens. Vale só neste player: o admin não muda e as mídias novas entram no fim.'),
+      summary,
+      el('div', { class: 'row' }, el('button', { onclick: async () => { if (await ask('Voltar nomes, ordem, tempos e mídias ocultas ao que o admin definiu?', 'Restaurar tudo')) act('', 'reset-all'); } }, 'Restaurar tudo do admin'), el('button', { onclick: showMedia }, 'Downloads')),
+      msg,
+      list,
+      el('div', { class: 'row footbar' }, el('button', { class: 'primary', onclick: () => showHome('') }, 'Voltar')),
+    );
+    await load();
   }
 
   async function showDisplay() {

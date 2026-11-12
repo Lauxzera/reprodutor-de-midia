@@ -110,6 +110,7 @@ function setup(apiOverrides = {}, opts = {}) {
       listScreens: async () => ({ ok: true, screens: [] }),
       downloads: async () => ({ ok: true, items: [], revision: 4, incoming: false }),
       downloadAction: async () => ({ ok: true }),
+      playlistAction: async () => ({ ok: true }),
       ...apiOverrides,
     },
   };
@@ -462,4 +463,43 @@ test('mídias e downloads: item com erro mostra o motivo e o botão Voltar volta
   assert.match(t.maint.innerText, /HTTP 503/);
   await t.click(/^Voltar$/);
   assert.match(t.maint.innerText, /Mídias baixadas/);
+});
+
+test('playlist e nomes: ordem, renomear, ocultar e tempo da imagem chamam as ações certas', async () => {
+  const calls = [];
+  const media = [
+    { id: 'a', type: 'video', name: 'promo.mp4', origName: 'promo.mp4', size: 100, present: true, src: '' },
+    { id: 'b', type: 'image', name: 'Vitrine', origName: 'oferta.jpg', localName: true, size: 100, durationSec: 8, present: true, src: '' },
+    { id: 'c', type: 'image', name: 'aviso.jpg', origName: 'aviso.jpg', hidden: true, size: 100, durationSec: 10, present: true, src: '' },
+  ];
+  const t = setup({ state: { media }, playlistAction: async (_t, id, a, v) => (calls.push([id, a, v]), { ok: true }) });
+  await t.tick();
+  await t.click(/^Playlist e nomes/);
+  const txt = t.maint.innerText;
+  for (const re of [/promo.mp4/, /Vitrine/, /nome no admin: oferta.jpg/, /Oculta/, /Ajustada/, /#3/, /2 na playlist · 1 oculta/, /8 s/]) assert.match(txt, re);
+
+  await t.click(/^▼$/);
+  assert.deepEqual(calls.pop(), ['a', 'down', undefined]);
+  await t.click(/^\+5$/);
+  assert.deepEqual(calls.pop(), ['b', 'duration', 13]);
+  await t.click(/^−1$/);
+  assert.deepEqual(calls.pop(), ['b', 'duration', 7]);
+  await t.click(/^Mostrar$/);
+  assert.deepEqual(calls.pop(), ['c', 'show', undefined]);
+  await t.click(/^Ocultar$/);
+  assert.deepEqual(calls.pop(), ['a', 'hide', undefined]);
+  await t.click(/^Voltar ao do admin$/);
+  assert.deepEqual(calls.pop(), ['b', 'reset', undefined]);
+
+  await t.click(/^Renomear$/);
+  const input = t.maint.all((n) => n.tagName === 'INPUT')[0];
+  assert.ok(input, 'campo de nome aparece (com o teclado na tela)');
+  input.value = 'Nova promoção';
+  await t.click(/^Salvar nome$/);
+  assert.deepEqual(calls.pop(), ['a', 'rename', 'Nova promoção']);
+
+  await t.tap(/Restaurar tudo do admin/);
+  await t.click(/^Restaurar tudo$/);
+  assert.deepEqual(calls.pop(), ['', 'reset-all', undefined]);
+  assert.deepEqual(t.errors, []);
 });
