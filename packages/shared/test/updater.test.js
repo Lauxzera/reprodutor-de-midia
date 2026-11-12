@@ -88,6 +88,30 @@ test('launchInstaller com appExe: usa o auxiliar wscript, que roda o instalador 
   assert.ok(script.t.includes(String.raw`winmgmts:\\\\.\\root\\cimv2`), 'moniker WMI escapado para JScript');
 });
 
+test('launchInstaller: se o wscript não roda, o plano B (cmd) instala E reabre o app; o registro vai no auxiliar', () => {
+  const calls = [];
+  const errors = [];
+  const handlers = {};
+  launchInstaller('C:\\Temp\\Setup 0.1.3.exe', {
+    appExe: 'C:\\Apps\\Reprodutor Player.exe',
+    logFile: 'C:\\Dados\\update-helper.log',
+    onError: (e) => errors.push(e.code),
+    writeFile: () => {},
+    spawnImpl: (cmd, args, opts) => {
+      calls.push({ cmd, args, opts });
+      return { unref() {}, on: (ev, fn) => (handlers[ev] = fn) };
+    },
+  });
+  assert.equal(calls[0].cmd, 'wscript.exe');
+  assert.equal(calls[0].args[calls[0].args.length - 1], 'C:\\Dados\\update-helper.log');
+  handlers.error({ code: 'ENOENT' }); // o Windows não conseguiu rodar o wscript
+  assert.deepEqual(errors, ['ENOENT']);
+  assert.equal(calls[1].cmd, 'cmd.exe');
+  assert.equal(calls[1].opts.detached, true);
+  const line = calls[1].args.join(' ');
+  assert.ok(line.includes('/S --updated') && line.includes('start "" "C:\\Apps\\Reprodutor Player.exe"'), 'instala e reabre o app');
+});
+
 test('launchInstaller: roda o instalador direto com /S, independente do app (sem PowerShell, sem shell)', () => {
   let seen;
   const child = launchInstaller('C:\Users\Usuario & Teste\Temp\Setup 0.1.3.exe', { spawnImpl: (cmd, args, opts) => ((seen = { cmd, args, opts }), { unref() { seen.unref = true; } }) });

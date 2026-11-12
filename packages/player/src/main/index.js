@@ -83,6 +83,17 @@ function main() {
   let quitting = false;
   let lastStatusState = null;
 
+  // Registro do auxiliar de atualização (escrito fora do app, enquanto ele está fechado): copia para o player.log.
+  const updateLogFile = path.join(dataDir, 'update-helper.log');
+  try {
+    if (fs.existsSync(updateLogFile)) {
+      for (const l of fs.readFileSync(updateLogFile, 'utf8').split(/\r?\n/).filter(Boolean)) log(`Atualização (auxiliar): ${l}`);
+      fs.rmSync(updateLogFile, { force: true });
+    }
+  } catch {
+    /* sem registro do auxiliar */
+  }
+
   process.on('uncaughtException', (e) => log(`uncaughtException: ${e.stack || e.message}`));
   process.on('unhandledRejection', (e) => log(`unhandledRejection: ${e && e.stack ? e.stack : e}`));
 
@@ -385,7 +396,8 @@ function main() {
       log(`Atualização: baixando v${updateInfo.latest}`);
       const file = await downloadUpdate({ info: updateInfo, onProgress: (p) => win && !win.isDestroyed() && win.webContents.send('player:update-progress', p) });
       log('Atualização: instalador conferido (SHA-256); fechando para instalar');
-      launchInstaller(file, { appExe: process.execPath }); // o auxiliar reabre o player depois de instalar
+      // O auxiliar reabre o player depois de instalar (e, se o Windows barrar o wscript, o cmd faz o mesmo).
+      launchInstaller(file, { appExe: process.execPath, logFile: updateLogFile, onError: (e) => log(`Atualização: auxiliar falhou (${e.code || e.message}); usando o plano B`) });
       setTimeout(quit, 1000);
       return { ok: true, message: `Instalando v${updateInfo.latest}… o player fecha e reabre sozinho em cerca de um minuto.` };
     } catch (e) {

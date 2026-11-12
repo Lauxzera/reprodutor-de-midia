@@ -85,32 +85,72 @@ async function downloadUpdate({ info, fetch = globalThis.fetch, dir = os.tmpdir(
 // Auxiliar (JScript, executado pelo wscript): espera o app fechar, roda o instalador em silêncio, espera terminar e
 // reabre o app se o instalador não o reabriu. wscript é um programa gráfico: roda sem console e continua vivo
 // depois que o app fecha (com `detached`, o PowerShell sai sem executar nada: testado).
+// O auxiliar nunca deixa o equipamento sem player: espera o app fechar (até 30 s), roda o instalador, e se depois
+// de 4 s o app não voltou (o instalador silencioso não reabre; ou falhou/foi barrado), abre o app que estiver instalado.
+// Tudo fica registrado em reprodutor-update.log (o Player copia esse registro para o player.log ao reabrir).
 const HELPER = String.raw`var sh = new ActiveXObject("WScript.Shell");
+var fso = new ActiveXObject("Scripting.FileSystemObject");
 var installer = WScript.Arguments(0), app = WScript.Arguments(1), proc = WScript.Arguments(2);
-WScript.Sleep(1500);
-sh.Run('"' + installer + '" /S --updated', 0, true);
-WScript.Sleep(3000);
-var wmi = GetObject("winmgmts:\\\\.\\root\\cimv2");
-var running = wmi.ExecQuery("select Name from Win32_Process where Name='" + proc + "'").Count > 0;
-if (!running) sh.Run('"' + app + '"', 1, false);
+var logFile = WScript.Arguments.length > 3 ? WScript.Arguments(3) : "";
+function log(m) {
+  if (!logFile) return;
+  try { var f = fso.OpenTextFile(logFile, 8, true); f.WriteLine(new Date().toString() + " " + m); f.Close(); } catch (e) {}
+}
+function count() {
+  try {
+    var wmi = GetObject("winmgmts:\\\\.\\root\\cimv2");
+    return wmi.ExecQuery("select Name from Win32_Process where Name='" + proc + "'").Count;
+  } catch (e) { return -1; }
+}
+log("auxiliar iniciado");
+for (var i = 0; i < 30 && count() > 0; i++) WScript.Sleep(1000);
+log("app fechado (processos restantes: " + count() + ")");
+var code = -1;
+try { code = sh.Run('"' + installer + '" /S --updated', 0, true); } catch (e) { log("falha ao rodar o instalador: " + e.message); }
+log("instalador terminou (codigo " + code + ")");
+for (var j = 0; j < 4 && count() <= 0; j++) WScript.Sleep(1000);
+if (count() <= 0) {
+  log("o app nao reabriu sozinho; abrindo " + app);
+  try { sh.Run('"' + app + '"', 1, false); } catch (e) { log("falha ao abrir o app: " + e.message); }
+} else {
+  log("app em execucao");
+}
 `.replace(/\n/g, '\r\n');
 
 /**
  * Atualiza em segundo plano: o app chama isto e fecha logo depois. O auxiliar roda o instalador (/S), espera e
  * reabre o app (`appExe`). Sem `appExe`, só lança o instalador direto.
  */
-function launchInstaller(installerPath, { appExe, spawnImpl = spawn, writeFile = fs.writeFileSync } = {}) {
-  let cmd = installerPath;
-  let args = ['/S'];
-  if (appExe) {
-    const helper = path.join(path.dirname(installerPath), 'reprodutor-update.js');
-    writeFile(helper, HELPER);
-    cmd = 'wscript.exe';
-    args = ['//B', '//Nologo', helper, installerPath, appExe, path.basename(appExe)];
+function launchInstaller(installerPath, { appExe, logFile, onError = () => {}, spawnImpl = spawn, writeFile = fs.writeFileSync } = {}) {
+  const opts = { detached: true, stdio: 'ignore', windowsHide: true };
+  const detach = (child) => {
+    if (child && child.unref) child.unref();
+    return child;
+  };
+  if (!appExe) return detach(spawnImpl(installerPath, ['/S'], opts));
+
+  const helper = path.join(path.dirname(installerPath), 'reprodutor-update.js');
+  writeFile(helper, HELPER);
+  const args = ['//B', '//Nologo', helper, installerPath, appExe, path.basename(appExe)];
+  if (logFile) args.push(logFile);
+  const child = spawnImpl('wscript.exe', args, opts);
+  // Se o Windows não consegue rodar o auxiliar (wscript ausente ou bloqueado por política), usa o cmd: espera o app
+  // fechar, instala e reabre. (Testado: o instalador sozinho, mesmo com --updated, instala em silêncio mas NÃO reabre o
+  // app; sem este ouvinte o erro passaria batido e o app fecharia sem voltar.)
+  if (child && child.on) {
+    child.on('error', (e) => {
+      onError(e);
+      try {
+        const line = `ping -n 4 127.0.0.1 >nul & start /wait "" "${installerPath}" /S --updated & ping -n 4 127.0.0.1 >nul & start "" "${appExe}"`;
+        const fb = spawnImpl('cmd.exe', ['/d', '/s', '/c', `"${line}"`], { ...opts, windowsVerbatimArguments: true });
+        detach(fb);
+        if (fb && fb.on) fb.on('error', onError);
+      } catch (e2) {
+        onError(e2);
+      }
+    });
   }
-  const child = spawnImpl(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
-  if (child && child.unref) child.unref();
-  return child;
+  return detach(child);
 }
 
 module.exports = { DEFAULT_REPO, compareVersions, checkForUpdate, downloadUpdate, launchInstaller };
