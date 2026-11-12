@@ -242,6 +242,14 @@ function viewLibrary() {
     'Arraste imagens e vídeos para cá, ou ',
     h('button', { class: 'btn primary', onclick: pickFiles }, 'Adicionar arquivos'),
     h('div', { class: 'muted', style: 'margin-top:8px;font-size:12px' }, 'JPG, PNG, GIF, WebP, MP4, WebM, MOV. Recomendado: vídeos em MP4 (H.264).'),
+    api.web && api.library.optimize
+      ? h(
+          'label',
+          { class: 'muted', style: 'display:flex;gap:8px;align-items:flex-start;justify-content:center;margin-top:10px;font-size:12px;text-align:left;cursor:pointer' },
+          h('input', { type: 'checkbox', checked: api.library.optimize.get() ? true : null, onchange: (e) => api.library.optimize.set(e.target.checked) }),
+          h('span', {}, 'Padronizar vídeos em no máximo Full HD (1080p) e 30 fps ao enviar. Vídeos 4K ou de 60 fps são reduzidos; os que já estão dentro do limite não são recomprimidos nem ampliados.'),
+        )
+      : null,
   );
 
   const grid = h('div', { class: 'grid' });

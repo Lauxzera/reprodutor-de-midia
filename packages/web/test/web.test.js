@@ -265,7 +265,7 @@ test('vídeo H.264 pesado (4K ou 60 fps) é otimizado; dentro do limite fica int
   const smallOut = () => mk('grande.mp4', 200);
 
   // pesado: troca pelo arquivo menor
-  const heavy = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => smallOut(), analyzeVideo: async () => ({ heavy: true, why: '3840x2160' }) });
+  const heavy = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => smallOut(), analyzeVideo: async () => ({ heavy: true, why: '3840x2160' }), getOptimize: () => true });
   const msgs = [];
   heavy.library.onProgress((m) => msgs.push(m));
   const big = mk('grande.mp4', 5000);
@@ -276,17 +276,32 @@ test('vídeo H.264 pesado (4K ou 60 fps) é otimizado; dentro do limite fica int
 
   // dentro do limite: o conversor nem é chamado
   let called = 0;
-  const light = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => { called++; return smallOut(); }, analyzeVideo: async () => ({ heavy: false, why: '' }) });
+  const light = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => { called++; return smallOut(); }, analyzeVideo: async () => ({ heavy: false, why: '' }), getOptimize: () => true });
   const orig = mk('ok.mp4', 3000);
   await light.library.addPaths([orig]);
   assert.equal(called, 0);
   assert.equal((await light.library.list())[0].size, orig.size);
 
   // conversor falha: segue com o original em vez de recusar o arquivo
-  const failing = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => { throw new Error('sem encoder'); }, analyzeVideo: async () => ({ heavy: true, why: '60 fps' }) });
+  const failing = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => { throw new Error('sem encoder'); }, analyzeVideo: async () => ({ heavy: true, why: '60 fps' }), getOptimize: () => true });
   const m2 = [];
   failing.library.onProgress((m) => m2.push(m));
   const r3 = await failing.library.addPaths([mk('f.mp4', 2000)]);
   assert.equal(r3.added.length, 1);
   assert.ok(m2.some((m) => /não foi possível otimizar/.test(m)));
+});
+
+test('otimização de vídeo pesado vem ligada por padrão; desligada, preserva a resolução original', async () => {
+  const settings = { endpoint: 'https://s3.us-east-005.backblazeb2.com', region: '', bucket: 'b', privateBucket: true, publicBaseUrl: '' };
+  let chamadas = 0;
+  const api = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => { chamadas++; return new File([Buffer.from('x')], 'x.mp4'); }, analyzeVideo: async () => ({ heavy: true, why: '3840x2160' }) });
+  const big = new File([Buffer.concat([Buffer.from('....ftypisom....moov'), Buffer.from('avc1'), crypto.randomBytes(4000)])], '4k.mp4', { type: 'video/mp4' });
+  assert.equal(api.library.optimize.get(), true);
+  await api.library.addPaths([big]);
+  assert.equal(chamadas, 1, 'ligada por padrão: o vídeo 4K é reduzido');
+
+  const off = createWebApi({ storage: createMemoryS3(), settings, saveSettings: async () => {}, convertVideo: async () => { chamadas++; return new File([Buffer.from('x')], 'x.mp4'); }, analyzeVideo: async () => ({ heavy: true, why: '3840x2160' }), getOptimize: () => false });
+  await off.library.addPaths([big]);
+  assert.equal(chamadas, 1, 'desligada: nada é recomprimido');
+  assert.equal((await off.library.list())[0].size, big.size);
 });

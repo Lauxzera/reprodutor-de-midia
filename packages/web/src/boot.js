@@ -71,6 +71,14 @@ function start({ storage, settings, saveSettings, logout, getReadKey, getStatusK
     getStatusKey,
     convertVideo,
     analyzeVideo,
+    getOptimize: () => store.get('rm.optimize') !== '0',
+    setOptimize: (v) => {
+      try {
+        store.set('rm.optimize', v ? '1' : '0');
+      } catch {
+        /* sem armazenamento: vale só nesta sessão */
+      }
+    },
     pickFiles: () =>
       new Promise((resolve) => {
         fileInput.value = '';

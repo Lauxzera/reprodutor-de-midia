@@ -108,17 +108,73 @@ function disposeLater(el, ms) {
   }, ms + 150);
 }
 
-function swapTo(el) {
+const fadeMs = () => Math.max(200, Math.min(2000, (state && Number(state.settings.transitionMs)) || 600));
+
+// Coloca a mídia no palco ainda invisível (já pode decodificar e apresentar quadros).
+function attach(el) {
   el.classList.add('layer');
   stage.appendChild(el);
+}
+
+// Dissolve suave: a mídia nova aparece por cima da anterior, que segue tocando por baixo até o fim do fade.
+// Só chamar com a nova já pronta (primeiro quadro apresentado), para a transição nunca engasgar nem congelar.
+function reveal(el) {
   void el.offsetWidth; // força o início da transição
   el.classList.add('visible');
   const old = currentEl;
   currentEl = el;
   if (old) {
-    old.classList.remove('visible');
-    disposeLater(old, state ? state.settings.transitionMs : 600);
+    fadeAudio(old, el, fadeMs());
+    disposeLater(old, fadeMs());
   }
+}
+
+function swapTo(el) {
+  attach(el);
+  reveal(el);
+}
+
+// Som acompanha o dissolve: o antigo diminui enquanto o novo sobe (nada de corte seco no áudio).
+function fadeAudio(oldEl, newEl, ms) {
+  if (wantMuted()) return;
+  const target = volumeOf();
+  const t0 = performance.now();
+  const step = () => {
+    const k = Math.min(1, (performance.now() - t0) / ms);
+    if (newEl.tagName === 'VIDEO') newEl.volume = target * k;
+    if (oldEl.tagName === 'VIDEO') oldEl.volume = target * (1 - k);
+    if (k < 1) setTimeout(step, 40);
+  };
+  step();
+}
+
+// Primeira mídia depois do vazio: o som sobe junto com a imagem (fade-in), sem estalo.
+function fadeAudioIn(v) {
+  if (wantMuted()) return;
+  const target = volumeOf();
+  const t0 = performance.now();
+  const ms = fadeMs();
+  const step = () => {
+    const k = Math.min(1, (performance.now() - t0) / ms);
+    v.volume = target * k;
+    if (k < 1) setTimeout(step, 40);
+  };
+  step();
+}
+
+// Resolve quando o primeiro quadro foi apresentado (ou após o limite, para nunca travar a fila).
+function firstFrame(v, ms) {
+  return new Promise((resolve) => {
+    let done = false;
+    const fin = () => {
+      if (!done) {
+        done = true;
+        resolve();
+      }
+    };
+    if (typeof v.requestVideoFrameCallback === 'function') v.requestVideoFrameCallback(fin);
+    setTimeout(fin, ms);
+  });
 }
 
 function clearStage() {
@@ -157,16 +213,18 @@ function dropPreload() {
 }
 
 function prefetchNext(afterId) {
-  api
+  return api
     .next(afterId)
     .then((next) => {
-      if (!next || next.id === currentId || (preloaded && preloaded.id === next.id)) return;
+      if (!next) return null;
+      if (next.id === currentId || (preloaded && preloaded.id === next.id)) return next;
       dropPreload();
       const promise = next.type === 'image' ? loadImage(next) : loadVideo(next);
       promise.catch(() => {}); // falha na pré-carga: a troca tenta de novo na hora
       preloaded = { id: next.id, promise };
+      return next;
     })
-    .catch(() => {});
+    .catch(() => null);
 }
 
 function takePreload(id) {
@@ -193,13 +251,21 @@ function loadVideo(item) {
   );
 }
 
-function waitEnded(v) {
+// Espera o vídeo acabar, ou até faltar leadMs (o próximo já entra em fade enquanto este ainda toca).
+function waitTail(v, leadMs) {
   return new Promise((resolve) => {
-    const fallback = setTimeout(resolve, (Number.isFinite(v.duration) ? v.duration : 120) * 1000 + 8000);
-    const done = () => {
+    const fallback = setTimeout(done, (Number.isFinite(v.duration) ? v.duration : 120) * 1000 + 8000);
+    const tick =
+      leadMs > 0
+        ? setInterval(() => {
+            if (Number.isFinite(v.duration) && (v.duration - v.currentTime) * 1000 <= leadMs) done();
+          }, 50)
+        : null;
+    function done() {
       clearTimeout(fallback);
+      if (tick) clearInterval(tick);
       resolve();
-    };
+    }
     v.addEventListener('ended', done, { once: true });
     v.addEventListener('error', done, { once: true });
   });
@@ -223,21 +289,35 @@ async function play(item) {
   if (same && currentEl.tagName === 'VIDEO') {
     video = currentEl;
     video.currentTime = 0;
+    currentId = item.id;
+    api.playing({ id: item.id, expectedMs: (Number.isFinite(video.duration) ? video.duration : 120) * 1000 + 30000 });
+    await video.play();
   } else {
     video = await takePreload(item.id);
     if (video) {
       video.muted = wantMuted();
-      video.volume = volumeOf();
+      video.volume = 0; // o som sobe junto com o dissolve (sem estalo antes de aparecer)
     } else {
       video = await loadVideo(item);
+      video.volume = 0;
     }
-    swapTo(video);
+    // Começa a tocar ainda invisível; só dissolve quando o primeiro quadro já foi apresentado.
+    attach(video);
+    await video.play();
+    await firstFrame(video, 1500);
+    currentId = item.id;
+    api.playing({ id: item.id, expectedMs: (Number.isFinite(video.duration) ? video.duration : 120) * 1000 + 30000 });
+    const hadOld = Boolean(currentEl);
+    reveal(video);
+    if (!hadOld) fadeAudioIn(video);
   }
-  currentId = item.id;
-  api.playing({ id: item.id, expectedMs: (Number.isFinite(video.duration) ? video.duration : 120) * 1000 + 30000 });
-  await video.play();
-  prefetchNext(item.id);
-  await waitEnded(video);
+  // O próximo item começa a dissolver antes do fim deste: este segue tocando por baixo, sem congelar no último quadro.
+  const next = await prefetchNext(item.id);
+  let lead = 0;
+  if (next && next.id !== item.id && Number.isFinite(video.duration)) {
+    lead = Math.min(fadeMs() + (next.type === 'video' ? 700 : 250), video.duration * 400);
+  }
+  await waitTail(video, lead);
 }
 
 async function loop() {

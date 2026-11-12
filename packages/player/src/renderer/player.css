@@ -24,7 +24,8 @@ html, body {
   height: 100%;
   object-fit: var(--fit);
   opacity: 0;
-  transition: opacity var(--t) ease;
+  transition: opacity var(--t) cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity;
   background: #000;
 }
 .layer.visible { opacity: 1; }

@@ -45,7 +45,7 @@ const extOf = (name) => {
  * @param {Function} [o.logout]
  * @param {Function} [o.pickFiles] () => Promise<File[]>   (seletor de arquivos do navegador)
  */
-function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getReadKey = () => null, getStatusKey = () => null, convertVideo = null, analyzeVideo = null, fetchLatest = fetchLatestVersion }) {
+function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getReadKey = () => null, getStatusKey = () => null, convertVideo = null, analyzeVideo = null, getOptimize = () => true, setOptimize = () => {}, fetchLatest = fetchLatestVersion }) {
   const viewSettings = () => {
     const rk = getReadKey();
     const sk = getStatusKey();
@@ -105,9 +105,10 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getR
         say(`${tag}: calculando assinatura…`);
         let probe = await hashAndProbe(file, (f) => say(`${tag}: lendo ${Math.round(f * 100)}%`));
 
-        // Video pesado demais para a TV (acima de Full HD ou de 30 fps), mesmo em H.264: reduz para Full HD/30 fps.
-        // Videos dentro do limite seguem intactos (sem recompressao, sem perda). Se a conversao falhar, usa o original.
-        if (type === 'video' && !(probe.hevc && !probe.h264) && convertVideo && analyzeVideo) {
+        // Padrao do sistema: todo video fica em no maximo Full HD (1080p) e 30 fps. Acima disso e reduzido; o que ja
+        // esta dentro do limite nunca e recomprimido nem ampliado (sem perda). O usuario pode desligar no admin.
+        // Se a conversao falhar, usa o original.
+        if (type === 'video' && !(probe.hevc && !probe.h264) && convertVideo && analyzeVideo && getOptimize()) {
           const info = await analyzeVideo(file);
           if (info && info.heavy) {
             say(`${tag}: vídeo pesado (${info.why}); otimizando para Full HD/30 fps…`);
@@ -202,6 +203,7 @@ function createWebApi({ storage, settings, saveSettings, logout, pickFiles, getR
         return files.length ? addFiles(files) : { added: [], skipped: [] };
       },
       addPaths: (files) => addFiles(files),
+      optimize: { get: () => Boolean(getOptimize()), set: (v) => setOptimize(Boolean(v)) },
       remove: async (sha256) => {
         const project = await loadProject();
         const usedIn = project.screens.filter((s) => s.items.some((it) => it.sha256 === sha256)).map((s) => s.name);
