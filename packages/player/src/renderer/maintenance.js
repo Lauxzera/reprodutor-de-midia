@@ -61,6 +61,7 @@
   let busy = false; // baixando a atualização: não redesenha a tela
 
   let kb = null; // teclado na tela (vkb.js)
+  let mediaUnsub = null;
   const isOpen = () => !root.classList.contains('hidden');
   const hold = (h) => window.__hold && window.__hold(h);
 
@@ -72,6 +73,7 @@
 
   function close() {
     hideKb();
+    if (typeof mediaUnsub === 'function') mediaUnsub();
     token = null;
     view = '';
     afterLogin = null;
@@ -174,6 +176,8 @@
     if (hasUp) progressEl = el('progress', { max: '100', value: '0' });
     countdownEl = el('div', { class: 'msg' });
 
+    const queued = (s.media || []).filter((m) => !m.present).length;
+    const dlHint = queued ? `${queued} mídia(s) na fila ou baixando: veja o andamento` : 'Andamento, prioridade e gerenciamento';
     const tile = (title, desc, onclick, cls = '') => el('button', { class: `tile ${cls}`.trim(), onclick }, el('b', {}, title), el('span', {}, desc));
 
     hideKb();
@@ -202,6 +206,7 @@
         el(
           'div',
           { class: 'tiles' },
+          tile('Mídias e downloads', dlHint, needAuth(showMedia)),
           tile('Sincronizar agora', 'Busca mídias e playlist novas', needAuth(run('sync'), true)),
           tile('Conexão com o admin', 'Parear com o código e escolher a tela', needAuth(showConfig)),
           tile('Exibição', 'Ajuste da imagem, rotação e volume', needAuth(showDisplay)),
@@ -225,6 +230,103 @@
         if (countdownEl) label();
       }, 1000);
     }
+  }
+
+  // Mídias e downloads: andamento de cada mídia, ordem de prioridade e gerenciamento (pausar, baixar já, apagar do disco).
+  const STATE_TEXT = { done: 'No disco', downloading: 'Baixando', queued: 'Na fila', paused: 'Pausada', error: 'Falhou' };
+  const pct = (it) => (it.total ? Math.min(100, Math.floor((it.received / it.total) * 100)) : it.state === 'done' ? 100 : 0);
+
+  async function showMedia() {
+    view = 'media';
+    stopCountdown();
+    let data = await api.maint.downloads(token);
+    if (!data.ok) return showLogin('Sessão renovada. Tente de novo.', showMedia);
+    const msg = el('div', { class: 'msg' });
+    const bars = new Map(); // arquivo -> { bar, label }
+    const list = el('div', { class: 'dl-list' });
+    const summary = el('div', { class: 'dl-summary' });
+    let signature = '';
+
+    const act = async (file, action) => {
+      const r = await api.maint.downloadAction(token, file, action);
+      if (!r.ok && r.error === 'Sessão expirada') return showLogin('Sessão renovada. Tente de novo.', showMedia);
+      msg.textContent = r.ok ? '' : r.error;
+      const fresh = await api.maint.downloads(token);
+      if (fresh.ok) apply(fresh, true);
+    };
+
+    const row = (it, i, all) => {
+      const bar = el('progress', { max: '100', value: String(pct(it)) });
+      const label = el('span', { class: 'dl-pct' }, it.state === 'done' ? '100%' : `${pct(it)}%`);
+      const metaText = (x) => `${x.type === 'video' ? 'vídeo' : 'imagem'}${x.total ? ` · ${fmtSize(x.state === 'done' ? x.total : x.received)}${x.state === 'done' ? '' : ` de ${fmtSize(x.total)}`}` : ''}`;
+      const meta = el('span', {}, metaText(it));
+      bars.set(it.file, { bar, label, meta, metaText });
+      const isDone = it.state === 'done';
+      const queue = all.filter((x) => x.state !== 'done');
+      const qi = queue.findIndex((x) => x.file === it.file);
+      const mk = (label, onclick, cls = '', extra = {}) => {
+        const b = el('button', { class: cls, ...(extra.aria ? { 'aria-label': extra.aria } : {}), onclick }, label);
+        if (extra.disabled) b.disabled = true;
+        return b;
+      };
+      const buttons = isDone
+        ? [mk('Baixar de novo', () => act(it.file, 'redownload')), mk('Remover do disco', () => act(it.file, 'remove'), 'danger')]
+        : [
+            it.state === 'downloading' ? null : mk('Baixar já', () => act(it.file, 'first'), 'primary'),
+            mk('▲', () => act(it.file, 'up'), '', { aria: 'Subir na fila', disabled: qi <= 0 }),
+            mk('▼', () => act(it.file, 'down'), '', { aria: 'Descer na fila', disabled: qi >= queue.length - 1 }),
+            it.paused ? mk('Retomar', () => act(it.file, 'resume')) : mk('Pausar', () => act(it.file, 'pause')),
+          ];
+      return el(
+        'div',
+        { class: `dl-row ${it.state}` },
+        el('div', { class: 'dl-head' }, !isDone ? el('span', { class: 'dl-rank' }, `#${qi + 1}`) : null, el('b', {}, it.name), el('span', { class: `dl-state ${it.state}` }, STATE_TEXT[it.state] || it.state)),
+        el('div', { class: 'dl-meta' }, meta, it.error ? el('span', { class: 'err' }, ` · ${it.error}`) : null),
+        !isDone ? el('div', { class: 'dl-bar' }, bar, label) : null,
+        el('div', { class: 'row dl-actions' }, ...buttons.filter(Boolean)),
+      );
+    };
+
+    // Reconstrói a lista só quando a estrutura muda (ordem, estado, pausa); o andamento só mexe nas barras.
+    function apply(d, force = false) {
+      data = d;
+      const sig = d.items.map((x) => `${x.file}:${x.state}:${x.paused}:${x.order}`).join('|');
+      const waiting = d.items.filter((x) => x.state !== 'done').length;
+      const downloading = d.items.filter((x) => x.state === 'downloading').length;
+      summary.textContent = d.items.length ? `${d.items.length - waiting} no disco · ${downloading} baixando · ${waiting - downloading} na fila${d.incoming ? ` · programação nova (revisão ${d.revision})` : ''}` : 'Nenhuma mídia na programação ainda.';
+      if (force || sig !== signature) {
+        signature = sig;
+        bars.clear();
+        const ordered = [...d.items.filter((x) => x.state !== 'done'), ...d.items.filter((x) => x.state === 'done')];
+        list.replaceChildren(...ordered.map((it, i) => row(it, i, ordered)));
+        return;
+      }
+      for (const it of d.items) {
+        const b = bars.get(it.file);
+        if (!b) continue;
+        b.bar.value = pct(it);
+        b.label.textContent = `${pct(it)}%`;
+        b.meta.textContent = b.metaText(it);
+      }
+    }
+
+    if (mediaUnsub) mediaUnsub();
+    let alive = true;
+    mediaUnsub = () => (alive = false);
+    if (api.onDownloads) api.onDownloads((d) => alive && view === 'media' && apply({ ok: true, ...d }));
+
+    apply(data, true);
+    const anyWaiting = () => data.items.some((x) => x.state !== 'done');
+    box(
+      el('h1', {}, 'Mídias e downloads'),
+      el('p', {}, 'Acompanhe o download de cada mídia e escolha a ordem: "Baixar já" interrompe o atual e começa por essa (o atual retoma depois, de onde parou).'),
+      summary,
+      el('div', { class: 'row' }, el('button', { onclick: () => act('', 'pause-all') }, 'Pausar tudo'), el('button', { onclick: () => act('', 'resume-all') }, 'Retomar tudo')),
+      msg,
+      list,
+      el('div', { class: 'row footbar' }, el('button', { class: 'primary', onclick: () => showHome('') }, 'Voltar')),
+    );
+    void anyWaiting;
   }
 
   async function showDisplay() {

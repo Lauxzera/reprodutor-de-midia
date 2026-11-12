@@ -167,6 +167,9 @@ function main() {
     if (info && typeof info === 'object') watchdog.itemStarted({ id: typeof info.id === 'string' ? info.id : null, expectedMs: Number(info.expectedMs) });
   });
 
+  engine.on('downloads', (d) => {
+    if (win && !win.isDestroyed()) win.webContents.send('player:downloads', d);
+  });
   engine.on('manifest', () => {
     notify();
     reporter.nudge();
@@ -251,6 +254,38 @@ function main() {
   const credsOf = (c) => ({ baseUrl: c.baseUrl, keyId: c.keyId, secretKey: c.secretKey, region: c.region });
 
   // Cola um código de pareamento: valida, guarda as credenciais só no processo principal e devolve as telas publicadas.
+  // Fila de downloads: o que está baixando (com a porcentagem de cada mídia), prioridade e gerenciamento.
+  const MEDIA_FILE_RE = /^media\/[a-f0-9]{64}\.[a-z0-9]{1,5}$/;
+  ipcMain.handle('maint:downloads', (_e, token) => {
+    if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
+    return { ok: true, ...engine.downloadStatus() };
+  });
+  ipcMain.handle('maint:download-action', async (_e, token, file, action) => {
+    if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };
+    armWindowTimer();
+    if (action === 'pause-all') return engine.pauseAll(true);
+    if (action === 'resume-all') return engine.pauseAll(false);
+    if (typeof file !== 'string' || !MEDIA_FILE_RE.test(file)) return { ok: false, error: 'Mídia inválida' };
+    log(`Downloads: "${action}" em ${file.slice(0, 18)}…`);
+    switch (action) {
+      case 'first':
+      case 'top':
+      case 'up':
+      case 'down':
+        return engine.setPriority(file, action);
+      case 'pause':
+        return engine.setPaused(file, true);
+      case 'resume':
+        return engine.setPaused(file, false);
+      case 'redownload':
+        return engine.removeLocal(file, { redownload: true });
+      case 'remove':
+        return engine.removeLocal(file, { redownload: false });
+      default:
+        return { ok: false, error: 'Ação desconhecida' };
+    }
+  });
+
   // Sem teclado: acha o pair.txt (pendrive, Downloads, Área de Trabalho) e devolve o código para o painel aplicar.
   ipcMain.handle('maint:find-pair', (_e, token) => {
     if (!security.checkToken(token)) return { ok: false, error: 'Sessão expirada' };

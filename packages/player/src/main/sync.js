@@ -52,7 +52,7 @@ class SyncEngine extends EventEmitter {
     this._warnedDay = null;
 
     this.manifest = null;
-    this.state = { etag: null, lastSyncAt: null, requestDay: today(), requestsToday: 0 };
+    this.state = { etag: null, lastSyncAt: null, requestDay: today(), requestsToday: 0, priority: [], paused: [] };
     this.status = { state: 'idle', message: '', lastCheckAt: null, lastSyncAt: null };
 
     this._timer = null;
@@ -60,6 +60,15 @@ class SyncEngine extends EventEmitter {
     this._inflight = null;
     this._failures = 0;
     this._lastProgressEmit = 0;
+
+    // Fila de downloads: o que está baixando, em que ordem, o que foi pausado (o painel do player controla isso).
+    this.dl = new Map(); // arquivo -> { state: 'downloading' | 'error', received, total, error }
+    this.pending = null; // itens do manifesto que está sendo baixado (ainda não ativado)
+    this.pendingRevision = null;
+    this._current = null; // { file, ctrl } do download em andamento
+    this._userAbort = false;
+    this._rerun = false;
+    this._lastDlEmit = 0;
   }
 
   _countRequest() {
@@ -166,9 +175,168 @@ class SyncEngine extends EventEmitter {
     if (!this._inflight) {
       this._inflight = this._sync().finally(() => {
         this._inflight = null;
+        this.pending = null;
+        this.pendingRevision = null;
+        if (this._rerun) {
+          this._rerun = false;
+          this.syncOnce().catch(() => {});
+        }
+        this._emitDownloads(true);
       });
     }
     return this._inflight;
+  }
+
+  // ---------- fila de downloads (prioridade, pausa, gerenciamento) ----------
+
+  _paused(file) {
+    return (this.state.paused || []).includes(file);
+  }
+
+  _saveState() {
+    return fsp.writeFile(this.statePath, JSON.stringify(this.state, null, 2)).catch(() => {});
+  }
+
+  /** Posição na fila definida pelo usuário (menor = antes); o que não foi ordenado vai depois, na ordem do manifesto. */
+  _rank(file, fallback) {
+    const i = (this.state.priority || []).indexOf(file);
+    return i >= 0 ? i : 1e6 + fallback;
+  }
+
+  /** Itens (sem repetir arquivo) na ordem em que serão baixados. */
+  _ordered(items) {
+    const seen = new Set();
+    const list = [];
+    items.forEach((it, i) => {
+      if (seen.has(it.file)) return;
+      seen.add(it.file);
+      list.push({ it, i });
+    });
+    return list.sort((a, b) => this._rank(a.it.file, a.i) - this._rank(b.it.file, b.i)).map((x) => x.it);
+  }
+
+  /** Faltam no disco e não estão pausados, na ordem de prioridade. */
+  _toDownload(items) {
+    return this._ordered(items).filter((it) => !this._hasFile(it) && !this._paused(it.file));
+  }
+
+  _partSize(item) {
+    try {
+      return fs.statSync(`${this.mediaPath(item)}.part`).size;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Situação de cada mídia (da programação em andamento ou da ativa), em ordem de prioridade. */
+  downloadStatus() {
+    const items = this.pending || (this.manifest ? this.manifest.items : []);
+    const rows = this._ordered(items).map((it, order) => {
+      const present = this._hasFile(it);
+      const cur = this.dl.get(it.file);
+      const paused = this._paused(it.file);
+      let state = present ? 'done' : paused ? 'paused' : cur && cur.state === 'error' ? 'error' : cur && cur.state === 'downloading' ? 'downloading' : 'queued';
+      const total = (cur && cur.total) || it.size || 0;
+      const received = present ? total : cur && cur.state === 'downloading' ? cur.received : this._partSize(it);
+      return { id: it.id, file: it.file, name: it.name || it.file, type: it.type, size: it.size || 0, state, received, total, paused, error: cur && cur.state === 'error' ? cur.error : '', order: order + 1 };
+    });
+    return { items: rows, revision: this.pendingRevision ?? (this.manifest ? this.manifest.revision : null), incoming: Boolean(this.pending), syncing: Boolean(this._inflight) };
+  }
+
+  _emitDownloads(force = false) {
+    const now = Date.now();
+    if (!force && now - this._lastDlEmit < 300) return;
+    this._lastDlEmit = now;
+    this.emit('downloads', this.downloadStatus());
+  }
+
+  _abortCurrent() {
+    if (this._current) {
+      this._userAbort = true;
+      this._current.ctrl.abort();
+    }
+  }
+
+  _kick() {
+    if (this._inflight) this._rerun = true;
+    else this.syncOnce().catch(() => {});
+  }
+
+  /**
+   * Muda a ordem da fila. action: 'first' (baixa já, interrompendo o atual), 'top', 'up', 'down'.
+   * O download interrompido continua de onde parou quando chegar a vez dele.
+   */
+  setPriority(file, action) {
+    const items = this.pending || (this.manifest ? this.manifest.items : []);
+    const order = this._ordered(items).map((it) => it.file);
+    const i = order.indexOf(file);
+    if (i < 0) return { ok: false, error: 'Mídia não encontrada na programação' };
+    const move = (to) => {
+      order.splice(i, 1);
+      order.splice(Math.max(0, Math.min(order.length, to)), 0, file);
+    };
+    if (action === 'first' || action === 'top') move(0);
+    else if (action === 'up') move(i - 1);
+    else if (action === 'down') move(i + 1);
+    else return { ok: false, error: 'Ação desconhecida' };
+    this.state.priority = order;
+    this._saveState();
+    if (action === 'first') {
+      if (this._paused(file)) this.state.paused = this.state.paused.filter((x) => x !== file);
+      if (this._current && this._current.file !== file) this._abortCurrent(); // o atual volta à fila e retoma depois
+      this._kick();
+    }
+    this._emitDownloads(true);
+    return { ok: true };
+  }
+
+  setPaused(file, paused) {
+    const set = new Set(this.state.paused || []);
+    if (paused) set.add(file);
+    else set.delete(file);
+    this.state.paused = [...set];
+    this._saveState();
+    if (paused && this._current && this._current.file === file) this._abortCurrent();
+    if (!paused) this._kick();
+    this._emitDownloads(true);
+    return { ok: true };
+  }
+
+  pauseAll(paused) {
+    const items = this.pending || (this.manifest ? this.manifest.items : []);
+    const missing = items.filter((it) => !this._hasFile(it)).map((it) => it.file);
+    const set = new Set(this.state.paused || []);
+    for (const f of paused ? missing : [...set]) paused ? set.add(f) : set.delete(f);
+    this.state.paused = [...set];
+    this._saveState();
+    if (paused) this._abortCurrent();
+    else this._kick();
+    this._emitDownloads(true);
+    return { ok: true };
+  }
+
+  /** Apaga o arquivo do disco. redownload=true baixa de novo na fila; false deixa pausada (não volta sozinha). */
+  async removeLocal(file, { redownload = true } = {}) {
+    const items = this.pending || (this.manifest ? this.manifest.items : []);
+    const it = items.find((x) => x.file === file);
+    if (!it) return { ok: false, error: 'Mídia não encontrada na programação' };
+    if (this._current && this._current.file === file) this._abortCurrent();
+    try {
+      await fsp.rm(this.mediaPath(it), { force: true });
+      await fsp.rm(`${this.mediaPath(it)}.part`, { force: true });
+    } catch (e) {
+      return { ok: false, error: `Não consegui apagar (${e.code || e.message}). Se ela está tocando agora, tente de novo depois.` };
+    }
+    this.dl.delete(file);
+    const set = new Set(this.state.paused || []);
+    if (redownload) set.delete(file);
+    else set.add(file);
+    this.state.paused = [...set];
+    this._saveState();
+    this.log(`Mídia ${redownload ? 'apagada para baixar de novo' : 'removida do disco'}: ${it.name || file}`);
+    if (redownload) this._kick();
+    this._emitDownloads(true);
+    return { ok: true };
   }
 
   _setStatus(state, message = '') {
@@ -236,31 +404,38 @@ class SyncEngine extends EventEmitter {
     this._capHit = false; // o B2 respondeu normalmente
     if (!target) return this._finish('idle', 'Sem manifesto ainda');
 
-    // 2) Baixa o que falta (arquivos novos ou apagados do disco).
-    const missing = [];
-    const seen = new Set();
-    for (const it of target.items) {
-      if (!seen.has(it.file) && !this._hasFile(it)) {
-        seen.add(it.file);
-        missing.push(it);
-      }
-    }
+    // 2) Baixa o que falta (arquivos novos ou apagados do disco), na ordem de prioridade da fila.
+    this.pending = target.items;
+    this.pendingRevision = target.revision;
+    let missing = this._toDownload(target.items);
+    let downloadedCount = 0;
 
     if (missing.length) {
       const enough = await this._checkDiskSpace(missing);
       if (!enough.ok) return this._finish('error', enough.message);
 
       let done = 0;
-      for (const it of missing) {
-        this._setStatus('downloading', `Baixando ${done + 1}/${missing.length}: ${it.name || it.file}`);
+      while ((missing = this._toDownload(target.items)).length) {
+        const it = missing[0];
+        this._setStatus('downloading', `Baixando ${done + 1}/${done + missing.length}: ${it.name || it.file}`);
+        this.dl.set(it.file, { state: 'downloading', received: this._partSize(it), total: it.size || 0, error: '' });
+        this._emitDownloads(true);
         try {
-          await this._download(it, done, missing.length);
+          await this._download(it, done, done + missing.length);
+          this.dl.delete(it.file);
         } catch (e) {
+          if (e.userAbort) {
+            this.dl.delete(it.file); // pausado, apagado ou passou a vez: volta à fila e segue com o próximo
+            continue;
+          }
+          this.dl.set(it.file, { state: 'error', received: this._partSize(it), total: it.size || 0, error: e.message });
+          this._emitDownloads(true);
           this.log(`Falha ao baixar ${it.file}: ${e.message}`);
           const offline = e.name === 'TypeError' || e.name === 'AbortError' || e.name === 'TimeoutError';
           return this._finish(offline ? 'offline' : 'error', `Download interrompido: ${e.message}`);
         }
         done++;
+        downloadedCount++;
       }
     }
 
@@ -292,7 +467,7 @@ class SyncEngine extends EventEmitter {
     await this._gc();
 
     this._finish('idle', isNew ? `Atualizado (revisão ${target.revision})` : 'Em dia');
-    return { status: isNew ? 'updated' : 'unchanged', downloaded: missing.length };
+    return { status: isNew ? 'updated' : 'unchanged', downloaded: downloadedCount };
   }
 
   async _checkDiskSpace(missing) {
@@ -337,6 +512,7 @@ class SyncEngine extends EventEmitter {
 
     if (!(item.size !== undefined && have === item.size)) {
       const ctrl = new AbortController();
+      this._current = { file: item.file, ctrl };
       let idleTimer;
       const bumpIdle = () => {
         clearTimeout(idleTimer);
@@ -367,8 +543,15 @@ class SyncEngine extends EventEmitter {
           },
         });
         await pipeline(Readable.fromWeb(res.body), tap, fs.createWriteStream(part, { flags: append ? 'a' : 'w' }));
+      } catch (e) {
+        if (this._userAbort) {
+          this._userAbort = false;
+          throw Object.assign(new Error('interrompido pelo usuário'), { userAbort: true });
+        }
+        throw e;
       } finally {
         clearTimeout(idleTimer);
+        this._current = null;
       }
     }
 
@@ -381,6 +564,12 @@ class SyncEngine extends EventEmitter {
   }
 
   _emitProgress(item, received, total, index, count) {
+    const cur = this.dl.get(item.file);
+    if (cur && cur.state === 'downloading') {
+      cur.received = received;
+      if (total) cur.total = total;
+    }
+    this._emitDownloads(false);
     const now = Date.now();
     if (now - this._lastProgressEmit < 400 && received !== total) return;
     this._lastProgressEmit = now;

@@ -279,4 +279,26 @@ body.maint-open #winctl { display: none; }
 #maint .winbtn.danger { border-color: #8a3036; color: #ff9d9d; }
 #maint .winbtn.danger:hover { border-color: #ef5b5b; }
 
+/* Mídias e downloads */
+#maint .dl-summary { color: #9097a3; font-size: 15px; }
+#maint .dl-list { display: flex; flex-direction: column; gap: 10px; }
+#maint .dl-row { background: #14161a; border: 1px solid #2e333d; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+#maint .dl-row.downloading { border-color: #4c8dff; }
+#maint .dl-row.error { border-color: #ef5b5b; }
+#maint .dl-row.paused { opacity: 0.85; }
+#maint .dl-head { display: flex; align-items: center; gap: 10px; }
+#maint .dl-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+#maint .dl-rank { min-width: 34px; text-align: center; padding: 2px 8px; border-radius: 999px; background: #242830; color: #9097a3; font-size: 13px; }
+#maint .dl-state { font-size: 13px; padding: 2px 10px; border-radius: 999px; background: #242830; color: #9097a3; white-space: nowrap; }
+#maint .dl-state.downloading { background: rgba(76, 141, 255, 0.2); color: #8db8ff; }
+#maint .dl-state.done { background: rgba(95, 211, 141, 0.15); color: #5fd38d; }
+#maint .dl-state.error { background: rgba(239, 91, 91, 0.2); color: #ff8a8a; }
+#maint .dl-state.paused { background: rgba(242, 184, 75, 0.15); color: #f2b84b; }
+#maint .dl-meta { color: #9097a3; font-size: 14px; }
+#maint .dl-bar { display: flex; align-items: center; gap: 12px; }
+#maint .dl-bar progress { flex: 1; }
+#maint .dl-pct { min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; }
+#maint .dl-actions button { flex: 1 1 110px; }
+#maint .dl-actions button[aria-label] { flex: 0 0 64px; }
+
 .hidden { display: none !important; }

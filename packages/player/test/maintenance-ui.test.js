@@ -108,6 +108,8 @@ function setup(apiOverrides = {}, opts = {}) {
       updateCheck: async () => ({ ok: true, info: { current: '0.1.2', latest: '0.1.3', newer: true } }),
       updateInstall: async () => ({ ok: true, message: 'Instalando…' }),
       listScreens: async () => ({ ok: true, screens: [] }),
+      downloads: async () => ({ ok: true, items: [], revision: 4, incoming: false }),
+      downloadAction: async () => ({ ok: true }),
       ...apiOverrides,
     },
   };
@@ -119,6 +121,9 @@ function setup(apiOverrides = {}, opts = {}) {
   };
   const errors = [];
   api.onUpdateProgress = () => {};
+  api.onDownloads = (cb) => {
+    api.__dl = cb; // o teste dispara eventos de andamento por aqui
+  };
   const win = { playerApi: api, innerWidth: 1280, addEventListener: (t, fn) => (windowHandlers[t] ||= []).push(fn), confirm: () => true };
   Object.assign(win, opts.win || {});
   const intervals = [];
@@ -149,7 +154,7 @@ function setup(apiOverrides = {}, opts = {}) {
   };
   const inputs = () => maint.all((n) => n.tagName === 'INPUT');
   const text = () => `${maint.innerText} ${body.innerText}`;
-  return { maint, corner, text, click, tap, press, inputs, tick, errors, body, intervals, holds, win };
+  return { api, maint, corner, text, click, tap, press, inputs, tick, errors, body, intervals, holds, win };
 }
 
 const openCorner = async (t) => {
@@ -408,4 +413,53 @@ test('fechar: o painel tem o botão Fechar o Player (com confirmação) e os con
   await t.tap(/Fechar o Player/);
   await t.click(/^Confirmar$/);
   assert.deepEqual(actions, ['quit']);
+});
+
+test('mídias e downloads: cada mídia com porcentagem, ordem e ações; o andamento atualiza sem refazer a lista', async () => {
+  const calls = [];
+  const it = (file, name, state, received, total, order, extra = {}) => ({ file, name, type: 'video', state, received, total, paused: state === 'paused', order, error: '', ...extra });
+  const items = [it('media/a.mp4', 'promo.mp4', 'downloading', 2097152, 4194304, 1), it('media/b.mp4', 'oferta.mp4', 'queued', 0, 8388608, 2), it('media/c.jpg', 'aviso.jpg', 'done', 1000, 1000, 3, { type: 'image' })];
+  const t = setup({ downloads: async () => ({ ok: true, items, revision: 4, incoming: true }), downloadAction: async (_t, f, a) => (calls.push([f, a]), { ok: true }) });
+  await t.tick();
+  assert.match(t.maint.innerText, /Mídias e downloads/);
+  await t.click(/Mídias e downloads/);
+  const txt = t.maint.innerText;
+  for (const re of [/promo.mp4/, /oferta.mp4/, /aviso.jpg/, /Baixando/, /Na fila/, /No disco/, /50%/, /#1/, /#2/, /1 no disco · 1 baixando · 1 na fila/, /programação nova \(revisão 4\)/]) assert.match(txt, re);
+  assert.equal(t.maint.all((n) => n.tagName === 'PROGRESS').length, 2, 'barra só para o que ainda não está no disco');
+
+  await t.click(/Baixar já/); // só a da fila tem esse botão
+  assert.deepEqual(calls.pop(), ['media/b.mp4', 'first']);
+  await t.click(/^Pausar$/);
+  assert.deepEqual(calls.pop(), ['media/a.mp4', 'pause'], 'o primeiro Pausar é o da mídia que está baixando');
+  await t.click(/Baixar de novo/);
+  assert.deepEqual(calls.pop(), ['media/c.jpg', 'redownload']);
+  await t.click(/Remover do disco/);
+  assert.deepEqual(calls.pop(), ['media/c.jpg', 'remove']);
+  await t.click(/Pausar tudo/);
+  assert.deepEqual(calls.pop(), ['', 'pause-all']);
+  await t.click(/Retomar tudo/);
+  assert.deepEqual(calls.pop(), ['', 'resume-all']);
+
+  const bars = () => t.maint.all((n) => n.tagName === 'PROGRESS');
+  const firstBar = bars()[0];
+  t.api.__dl({ items: [it('media/a.mp4', 'promo.mp4', 'downloading', 3145728, 4194304, 1), items[1], items[2]], revision: 4, incoming: true });
+  assert.equal(bars()[0], firstBar, 'a lista não foi refeita');
+  assert.equal(firstBar.value, 75);
+  assert.match(t.maint.innerText, /75%/);
+
+  // estado mudou (terminou o download): a lista é refeita
+  t.api.__dl({ items: [it('media/a.mp4', 'promo.mp4', 'done', 4194304, 4194304, 1), it('media/b.mp4', 'oferta.mp4', 'downloading', 100, 8388608, 2), items[2]], revision: 4, incoming: true });
+  assert.match(t.maint.innerText, /2 no disco · 1 baixando · 0 na fila/);
+  assert.deepEqual(t.errors, []);
+});
+
+test('mídias e downloads: item com erro mostra o motivo e o botão Voltar volta ao painel', async () => {
+  const items = [{ file: 'media/a.mp4', name: 'promo.mp4', type: 'video', state: 'error', received: 0, total: 100, paused: false, order: 1, error: 'HTTP 503' }];
+  const t = setup({ downloads: async () => ({ ok: true, items, revision: 1, incoming: false }) });
+  await t.tick();
+  await t.click(/Mídias e downloads/);
+  assert.match(t.maint.innerText, /Falhou/);
+  assert.match(t.maint.innerText, /HTTP 503/);
+  await t.click(/^Voltar$/);
+  assert.match(t.maint.innerText, /Mídias baixadas/);
 });
